@@ -45,6 +45,20 @@ if(BUILD_TESTING)
   find_package(std_msgs REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
 
+  ament_add_gtest(test_memfd_buffer_backend
+    test/test_memfd_buffer_backend.cpp
+  )
+  if(TARGET test_memfd_buffer_backend)
+    target_link_libraries(test_memfd_buffer_backend
+      ${PROJECT_NAME}
+      memfd_buffer::memfd_buffer
+      ${memfd_buffer_backend_msgs_TARGETS}
+      rosidl_buffer_backend::rosidl_buffer_backend
+      rosidl_runtime_cpp::rosidl_runtime_cpp
+      rosidl_typesupport_cpp::rosidl_typesupport_cpp
+    )
+  endif()
+
 endif()
 
 ament_auto_package(USE_SCOPED_HEADER_INSTALL_DIR)

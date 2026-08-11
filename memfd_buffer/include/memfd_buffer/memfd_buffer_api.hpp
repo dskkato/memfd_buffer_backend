@@ -1,0 +1,114 @@
+// Copyright 2026 Open Source Robotics Foundation, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef MEMFD_BUFFER__MEMFD_BUFFER_API_HPP_
+#define MEMFD_BUFFER__MEMFD_BUFFER_API_HPP_
+
+#include <cstring>
+#include <memory>
+#include <string>
+#include <typeinfo>
+#include <utility>
+#include <vector>
+
+#include "memfd_buffer/memfd_buffer_impl.hpp"
+#include "rosidl_buffer/buffer.hpp"
+
+namespace memfd_buffer_backend
+{
+
+inline rosidl::Buffer<std::uint8_t> allocate_buffer(std::size_t count)
+{
+  return rosidl::Buffer<std::uint8_t>(
+    std::make_unique<MemfdBufferImpl<std::uint8_t>>(count));
+}
+
+namespace detail
+{
+
+inline std::shared_ptr<rosidl::Buffer<std::uint8_t>> allocate_memfd_buffer_shared(
+  std::size_t byte_count)
+{
+  return std::make_shared<rosidl::Buffer<std::uint8_t>>(
+    std::make_unique<MemfdBufferImpl<std::uint8_t>>(byte_count));
+}
+
+template<typename T>
+inline MemfdBufferImpl<T> * memfd_impl_of(rosidl::Buffer<T> & buffer)
+{
+  return dynamic_cast<MemfdBufferImpl<T> *>(buffer.get_impl());
+}
+
+}  // namespace detail
+
+template<typename T>
+WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
+{
+  auto * impl = buffer.get_impl();
+  if (impl == nullptr) {
+    throw MemfdError("from_output_buffer called with null buffer implementation");
+  }
+  if (buffer.size() == 0) {
+    throw MemfdError("from_output_buffer called on empty buffer");
+  }
+
+  if (auto * memfd_impl = dynamic_cast<MemfdBufferImpl<T> *>(impl)) {
+    return memfd_impl->get_memfd_buffer().get_write_handle();
+  }
+
+  const std::size_t bytes = buffer.size() * sizeof(T);
+  auto promoted = detail::allocate_memfd_buffer_shared(bytes);
+  auto * promoted_impl = detail::memfd_impl_of(*promoted);
+  auto handle = promoted_impl->get_memfd_buffer().get_write_handle();
+  handle.set_promoted_buffer(std::move(promoted));
+  return handle;
+}
+
+template<typename T>
+ReadHandle from_input_buffer(const rosidl::Buffer<T> & buffer)
+{
+  const auto * impl = buffer.get_impl();
+  if (impl == nullptr) {
+    throw MemfdError("from_input_buffer called with null buffer implementation");
+  }
+  if (buffer.size() == 0) {
+    throw MemfdError("from_input_buffer called on empty buffer");
+  }
+
+  if (const auto * memfd_impl = dynamic_cast<const MemfdBufferImpl<T> *>(impl)) {
+    return memfd_impl->get_memfd_buffer().get_read_handle();
+  }
+
+  const std::size_t bytes = buffer.size() * sizeof(T);
+  auto promoted = detail::allocate_memfd_buffer_shared(bytes);
+  auto * promoted_impl = detail::memfd_impl_of(*promoted);
+  auto write = promoted_impl->get_memfd_buffer().get_write_handle();
+  const std::vector<T> source = buffer.to_vector();
+  std::memcpy(write.get_ptr(), source.data(), bytes);
+  auto read = promoted_impl->get_memfd_buffer().get_read_handle();
+  read.set_promoted_buffer(std::move(promoted));
+  return read;
+}
+
+inline void to_buffer(const void * source, std::size_t byte_count, WriteHandle & handle)
+{
+  if (source == nullptr || handle.get_ptr() == nullptr || byte_count == 0) {
+    return;
+  }
+  std::memcpy(handle.get_ptr(), source, byte_count);
+}
+
+}  // namespace memfd_buffer_backend
+
+#endif  // MEMFD_BUFFER__MEMFD_BUFFER_API_HPP_
