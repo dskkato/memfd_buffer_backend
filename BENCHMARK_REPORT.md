@@ -150,3 +150,88 @@ remove the allocation itself, and the measured latency is also affected by
 the known `rmw_fastrtps_cpp` inter-process behavior and run-to-run variation.
 
 The reserve result file is `memfd-old-pubsub-results-reserve.csv`.
+
+## patch の影響分析と今後の提案（日本語）
+
+### 結論
+
+今回の patch は、大きな payload で発生する zero-initialization を避ける
+方向には働いています。しかし、`FastBuffer` は `rmw_publish()` ごとに作り
+直されるため、publish 間で allocation は再利用されません。そのため、
+小〜中サイズで baseline 相当まで戻る効果は確認できませんでした。
+
+`inter_process/memfd` の p50 では、16 MiB が baseline の 1323 µs から
+reserve 版の 675 µs へ約49%改善しました。一方、1 KiB は 432 µs から
+894 µs、64 KiB は 276 µs から 914 µs、1 MiB は 396 µs から 840 µs でした。
+
+ただし、各条件は1回の実行で、warm-up後20サンプルだけを使っています。
+計測区間は publisher の `publish()` 直前から subscriber の読み出しまで
+なので、RMW内部だけでなく DDS送信、プロセススケジューリング、subscriber
+側の処理も含みます。小〜中サイズの差を patch の回帰と断定するには、まだ
+追加計測が必要です。
+
+### 何が起きているか
+
+- baseline は `get_serialized_size()`、`std::vector<uint8_t>` の allocation、
+  zero-initialization、外部 buffer を使った CDR serialize を行います。
+- lazy 版は `get_serialized_size()` と事前 zero-initialization を省きますが、
+  CDR serialize 中に `FastBuffer` の動的拡張が発生し得ます。
+- reserve 版は `serialized_size + 4` を `FastBuffer::reserve()` します。
+  これにより動的拡張を避けますが、publish ごとの `malloc()` と
+  `get_serialized_size()` は残ります。
+- 今回、reserve/lazy の p50 幾何平均は約 `1.00x` でした。したがって、
+  `FastBuffer::resize()` だけが主なボトルネックとは考えにくい結果です。
+- benchmark では非CPU subscriber endpoint が1つだけです。そのため、
+  endpoint間で `FastBuffer` を再利用する patch の利点も十分に評価できて
+  いません。実際には buffer は message ごとに作り直されています。
+
+### rmw_fastrtps_cpp への提案
+
+次の提案としては、単に `reserve()` を追加するより、publisher lifetime
+で buffer capacity を再利用する設計を検討するのが有効です。
+
+1. `FastBuffer` を `rmw_publish()` のローカル変数ではなく publisher state
+   に保持し、複数 message 間で capacity を再利用する。
+2. `rmw_publish()` の並行呼び出しに対応するため、mutex、thread-local
+   buffer、または buffer pool のいずれかを使う。
+3. `write_w_timestamp()` が return 前に CDR buffer を完全にコピーすることを
+   確認し、buffer reuse が安全であることを明示する。
+4. endpoint間再利用を評価するため、複数の memfd subscriber endpoint を
+   用いた benchmark を追加する。
+
+rmw_fastrtps_cpp には、「patch で一律に遅くなった」と伝えるより、次のよう
+に伝えるのが適切です。
+
+> 大容量では zero-initialization 回避の効果が確認できる。一方、
+> per-publish allocation が残るため、小〜中サイズの改善は確認できない。
+> 次の検証として publisher lifetime の buffer reuse と、serialize/write
+> 区間の内部計測が必要である。
+
+### 追加で有用なエビデンス
+
+`publish_to_buffer_endpoints()` を次の区間に分けて計測すると、原因を直接
+切り分けられます。
+
+```text
+get_serialized_size()
+FastBuffer allocation / reserve / resize
+cdr_serialize_with_endpoint()
+write_w_timestamp()
+```
+
+各ケースで、少なくとも次の値を記録するのが有効です。
+
+- `serialized_size`
+- reserve または resize 後の `FastBuffer` capacity
+- serialize 後の実データ長
+- `resize()` 回数
+- allocation 回数と確保 byte 数
+- 各区間の所要時間
+- endpoint 数
+- publisher 側の `publish()` 呼び出し時間
+
+比較対象は、baseline、lazy、reserve、publisher lifetime で buffer を再利用
+する版の4種類にします。各条件を複数回実行し、CPU affinity を固定した
+median と信頼区間を比較すると、今回のような DDS と scheduler の揺らぎを
+分離しやすくなります。`perf stat` の cycles、cache-misses、minor-faults
+も、zero-fill と allocator の影響を裏付ける証拠になります。
