@@ -17,8 +17,6 @@ using Clock = std::chrono::steady_clock;
 using Image = sensor_msgs::msg::Image;
 using ImageConstSharedPtr = std::shared_ptr<const Image>;
 
-constexpr std::size_t kWarmupSamples = 10;
-
 std::string value_of(int argc, char ** argv, const std::string & key, const std::string & fallback)
 {
   for (int i = 1; i + 1 < argc; ++i) {
@@ -65,7 +63,7 @@ class E2eNode : public rclcpp::Node
 public:
   E2eNode(
     const std::string & role, const std::string & mode, std::size_t size, std::size_t count,
-    int rate, bool use_intra_process)
+    int rate, std::size_t warmup, bool use_intra_process)
   : Node(
       "memfd_old_e2e_" + role + "_" + mode,
       node_options_for(use_intra_process)),
@@ -74,6 +72,7 @@ public:
     communication_(use_intra_process ? "intra_process_va" : "inter_process"),
     size_(size),
     count_(count),
+    warmup_(warmup),
     use_intra_process_(use_intra_process)
   {
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
@@ -190,7 +189,7 @@ private:
     }
 
     ++received_;
-    if (received_ > kWarmupSamples) {
+    if (received_ > warmup_) {
       latencies_.push_back(latency_ns);
     }
 
@@ -209,6 +208,7 @@ private:
   std::string communication_;
   std::size_t size_;
   std::size_t count_;
+  std::size_t warmup_;
   bool use_intra_process_;
   std::size_t sent_{0};
   std::size_t received_{0};
@@ -237,7 +237,8 @@ int main(int argc, char ** argv)
   auto node = std::make_shared<E2eNode>(
     role, mode, std::stoull(value_of(argc, argv, "--size", "1048576")),
     std::stoull(value_of(argc, argv, "--count", "100")),
-    std::stoi(value_of(argc, argv, "--rate-hz", "50")), use_intra_process);
+    std::stoi(value_of(argc, argv, "--rate-hz", "50")),
+    std::stoull(value_of(argc, argv, "--warmup", "10")), use_intra_process);
   rclcpp::spin(node);
   rclcpp::shutdown();
 }
