@@ -22,12 +22,13 @@ Each case uses `rmw_fastrtps_cpp`, Reliable `KeepLast(10)`, 10 Hz, and 30
 messages.  The first 10 callbacks are warm-up; p50/p95/p99 use the remaining
 20 samples.
 
-The Lyrical source tree was not rebuilt.  The existing installed Lyrical build
-was used.  There is a known issue under investigation in the current
-`rmw_fastrtps_cpp` implementation, so inter-process values should be treated
-as provisional until that separate issue is fixed and the benchmark is rerun.
+The initial size sweep used the existing installed Lyrical build.  The
+`rmw_fastrtps_cpp` patch comparison below rebuilt only `rmw_fastrtps_cpp` from
+the Lyrical source tree.  There is a known issue under investigation in the
+current `rmw_fastrtps_cpp` implementation, so inter-process values should be
+treated as provisional until that separate issue is fixed.
 
-## Results
+## Results: initial patched run
 
 The raw result file is generated as
 `memfd-old-pubsub-results.csv` by the command in the README.  The result table
@@ -54,3 +55,98 @@ run.  The intra-process VA-sharing paths stay roughly below 0.14 ms across
 the sweep, because the subscriber reads the same published buffer address.
 These values are a single run and are not a substitute for rerunning after the
 known `rmw_fastrtps_cpp` issue is fixed.
+
+## `rmw_fastrtps_cpp` patch comparison
+
+This comparison measures the effect of the patch in
+`~/ros2_lyrical/src/ros2/rmw_fastrtps/rmw_fastrtps_cpp/src/rmw_publish.cpp`.
+The patch changes `publish_to_buffer_endpoints()` as follows:
+
+- Before the patch, each endpoint called `get_serialized_size()`, allocated a
+  `std::vector<uint8_t>` of that size, zero-initialized it, and passed it to an
+  externally backed `FastBuffer`.
+- With the patch, one default `FastBuffer` is created outside the endpoint loop
+  and reused by each CDR serializer.  Its storage grows lazily without the
+  upfront zero-initialization.
+
+The baseline was measured with the patch stashed, followed by a rebuild of
+`rmw_fastrtps_cpp`.  The patch was then restored and rebuilt, and the same
+36-case sweep was repeated.  Both runs used the same benchmark conditions as
+above; every row received 30 messages, measured 20 samples after warm-up, and
+all intra-process rows had `va_matches=30`.
+
+The table below shows the relevant `inter_process/memfd` path.  Values are
+microseconds; the delta is the patch result relative to baseline.
+
+| size (bytes) | baseline p50 / p95 | patched p50 / p95 | p50 delta |
+|---:|---:|---:|---:|
+| 64 | 1016.290 / 1322.760 | 981.530 / 1122.840 | -3.4% |
+| 1,024 | 431.551 / 517.723 | 1026.350 / 1087.680 | +137.8% |
+| 4,096 | 383.556 / 491.389 | 810.187 / 967.861 | +111.2% |
+| 16,384 | 809.654 / 1081.910 | 882.337 / 990.808 | +9.0% |
+| 65,536 | 275.783 / 394.435 | 911.630 / 1049.730 | +230.6% |
+| 262,144 | 643.886 / 1868.780 | 803.279 / 1055.220 | +24.8% |
+| 1,048,576 | 395.543 / 650.925 | 1014.560 / 1141.300 | +156.5% |
+| 4,194,304 | 588.854 / 638.210 | 893.714 / 1036.960 | +51.8% |
+| 16,777,216 | 1322.980 / 1506.730 | 613.110 / 728.274 | -53.7% |
+
+The patch improved the 16 MiB case by about 54%, but regressed most smaller
+and medium-sized cases.  Across the nine sizes, the geometric mean of
+`patched / baseline` p50 was 1.50x, and the patch was faster in only 2 of 9
+sizes.  The likely trade-off is that lazy growth avoids the large zero-fill
+cost for very large payloads, while repeated growth and allocation costs more
+for smaller payloads.
+
+In this benchmark there is one non-CPU subscriber endpoint.  Also,
+`FastBuffer` is local to each `rmw_publish()` call, so its capacity is not
+reused across messages; the patch's endpoint-loop reuse does not amortize
+allocation across the 30 published samples.  The CPU inter-process path has
+no non-CPU endpoint, and intra-process communication does not go through this
+RMW publish path.  Therefore their run-to-run differences are treated as
+measurement variability rather than a direct patch effect.
+
+Raw files:
+
+- `memfd-old-pubsub-results-baseline.csv`: patch-before baseline.
+- `memfd-old-pubsub-results-patched-rerun.csv`: same-condition patched rerun.
+- `memfd-old-pubsub-results.csv`: initial patched run.
+
+## `FastBuffer::reserve()` patch comparison
+
+The lazy-allocation patch was then changed to call
+`FastBuffer::reserve(get_serialized_size(ros_message) + 4)` before creating the
+CDR serializer.  This uses the same capacity as the original
+`std::vector<uint8_t>(serialized_size + 4)` allocation, but `FastBuffer::reserve`
+uses `malloc()` and does not value-initialize the allocation.  The buffer is
+still created once per `rmw_publish()` call and reused across endpoints.
+
+The reserve version compiled successfully and passed a smoke test before the
+same 36-case sweep.  All rows again received 30 messages, measured 20 samples,
+and had `va_matches=30` for intra-process communication.
+
+The relevant `inter_process/memfd` p50/p95 results are below.  The deltas are
+relative to the patch-before baseline; the lazy patch result is included for
+comparison.
+
+| size (bytes) | baseline p50 / p95 | lazy patch p50 | reserve patch p50 / p95 | reserve vs baseline |
+|---:|---:|---:|---:|---:|
+| 64 | 1016.290 / 1322.760 | 981.530 | 945.648 / 1211.090 | -7.0% |
+| 1,024 | 431.551 / 517.723 | 1026.350 | 893.716 / 1054.880 | +107.1% |
+| 4,096 | 383.556 / 491.389 | 810.187 | 939.673 / 1106.600 | +145.0% |
+| 16,384 | 809.654 / 1081.910 | 882.337 | 776.918 / 1159.470 | -4.0% |
+| 65,536 | 275.783 / 394.435 | 911.630 | 914.328 / 1120.340 | +231.5% |
+| 262,144 | 643.886 / 1868.780 | 803.279 | 990.277 / 1127.600 | +53.8% |
+| 1,048,576 | 395.543 / 650.925 | 1014.560 | 840.327 / 1089.160 | +112.4% |
+| 4,194,304 | 588.854 / 638.210 | 893.714 | 922.418 / 1103.820 | +56.6% |
+| 16,777,216 | 1322.980 / 1506.730 | 613.110 | 675.496 / 756.288 | -48.9% |
+
+In this run, the reserve patch was faster than the baseline at 3 of 9 sizes
+and its geometric-mean p50 ratio was 1.50x baseline.  Compared with the lazy
+patch, the reserve version had an almost identical geometric-mean p50
+(`reserve/lazy = 1.00x`) and was faster at 4 of 9 sizes.  Therefore, reserving
+the old allocation size did not restore the small and medium-size performance
+to the baseline level.  It removes the dynamic growth path, but it does not
+remove the allocation itself, and the measured latency is also affected by
+the known `rmw_fastrtps_cpp` inter-process behavior and run-to-run variation.
+
+The reserve result file is `memfd-old-pubsub-results-reserve.csv`.
