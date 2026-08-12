@@ -1,4 +1,4 @@
-<!-- Copyright 2026 Open Source Robotics Foundation, Inc.
+<!-- Copyright 2026 Daisuke Kato
      Licensed under the Apache License, Version 2.0 -->
 <library path="memfd_buffer_backend">
   <class name="memfd"
