@@ -235,3 +235,55 @@ write_w_timestamp()
 median と信頼区間を比較すると、今回のような DDS と scheduler の揺らぎを
 分離しやすくなります。`perf stat` の cycles、cache-misses、minor-faults
 も、zero-fill と allocator の影響を裏付ける証拠になります。
+
+## `unique_ptr<uint8_t[]>` による zero-initialize 除去の計測
+
+最後に、元の baseline の構造を維持し、buffer の型だけを
+`std::vector<uint8_t>` から `std::unique_ptr<uint8_t[]>` に変更した variant
+を計測しました。各 endpoint ごとに次の allocation を行っています。
+
+```cpp
+std::unique_ptr<uint8_t[]> buffer_data(new uint8_t[buffer_size]);
+```
+
+明示的な初期化子を付けない `new[]` を使用し、zero-initialize を避けて
+います。`std::make_unique<uint8_t[]>` は実装上の初期化規則を混同しやすい
+ため、この計測では使用していません。`FastBuffer` は従来と同じ外部 buffer
+を参照し、allocation のタイミングと endpoint ごとの構造も baseline と
+同じです。
+
+36条件を再計測した結果、全行で `received=30`、`measured=20`、
+intra-process の `va_matches=30` でした。以下は relevant な
+`inter_process/memfd` の p50/p95 です。単位は µs です。
+
+| size (bytes) | baseline p50 / p95 | unique_ptr p50 / p95 | p50 delta |
+|---:|---:|---:|---:|
+| 64 | 1016.290 / 1322.760 | 775.092 / 880.679 | -23.7% |
+| 1,024 | 431.551 / 517.723 | 397.996 / 460.516 | -7.8% |
+| 4,096 | 383.556 / 491.389 | 354.722 / 441.143 | -7.5% |
+| 16,384 | 809.654 / 1081.910 | 527.157 / 749.331 | -34.9% |
+| 65,536 | 275.783 / 394.435 | 370.824 / 485.868 | +34.5% |
+| 262,144 | 643.886 / 1868.780 | 418.750 / 588.119 | -35.0% |
+| 1,048,576 | 395.543 / 650.925 | 433.941 / 585.454 | +9.7% |
+| 4,194,304 | 588.854 / 638.210 | 411.010 / 537.198 | -30.2% |
+| 16,777,216 | 1322.980 / 1506.730 | 419.081 / 640.957 | -68.3% |
+
+unique_ptr/baseline の p50 幾何平均は `0.765x` で、9サイズ中7サイズで
+unique_ptr 版が高速でした。lazy 版および reserve 版と比較しても、p50 の
+幾何平均はそれぞれ `0.509x` でした。
+
+この結果は、今回の変更では `FastBuffer` の dynamic growth や
+publisher lifetime の再利用を導入していないため、baseline との差分を
+主に zero-initialize の有無に帰属しやすい点が重要です。16 MiB だけでなく
+1 KiB〜4 KiBでも baseline より良くなっており、reserve 版で観測した
+小〜中サイズの揺らぎとは異なる傾向です。ただし、各条件1 runの結果で
+あるため、最終判断には複数run、CPU affinity固定、publisher内部区間の
+直接計測が必要です。
+
+この variant は、`rmw_fastrtps_cpp` に対して最初に提案しやすい変更です。
+従来の endpoint ごとの buffer lifetime と外部 `FastBuffer` を保ったまま、
+不要な zero-fill だけを除去しているため、serialize の動作や buffer の
+所有権モデルを変更せずに効果を検証できます。これを確認した上で、次の
+段階として publisher lifetime の buffer reuse を検討するのが安全です。
+
+生データは `memfd-old-pubsub-results-unique-ptr.csv` です。
