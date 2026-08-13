@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "memfd_buffer_backend/memfd_buffer_backend.hpp"
-
 #include <unistd.h>
 
 #include <atomic>
@@ -24,6 +22,7 @@
 #include "memfd_buffer/memfd_buffer_impl.hpp"
 #include "memfd_buffer/memfd_buffer_ipc_manager.hpp"
 #include "memfd_buffer/memfd_memory_pool.hpp"
+#include "memfd_buffer_backend/memfd_buffer_backend.hpp"
 #include "memfd_buffer_backend_msgs/msg/memfd_buffer_descriptor.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "rosidl_typesupport_cpp/message_type_support.hpp"
@@ -58,22 +57,20 @@ std::shared_ptr<void> MemfdBufferBackend::create_empty_descriptor() const
   return std::make_shared<memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
 }
 
-void MemfdBufferBackend::on_creating_endpoint(
-  const rmw_topic_endpoint_info_t & endpoint_info) const
+void MemfdBufferBackend::on_creating_endpoint(const rmw_topic_endpoint_info_t & endpoint_info) const
 {
   (void)endpoint_info;
 }
 
-std::pair<bool, std::vector<std::set<std::uint32_t>>>
-MemfdBufferBackend::on_discovering_endpoint(
+std::pair<bool, std::vector<std::set<std::uint32_t>>> MemfdBufferBackend::on_discovering_endpoint(
   const rmw_topic_endpoint_info_t & endpoint_info,
   const std::vector<rmw_topic_endpoint_info_t> & existing_endpoints,
   const std::unordered_map<std::string, std::string> & endpoint_supported_backends)
 {
   (void)existing_endpoints;
   const auto it = endpoint_supported_backends.find("memfd");
-  const bool compatible = it != endpoint_supported_backends.end() &&
-    it->second == get_backend_metadata();
+  const bool compatible =
+    it != endpoint_supported_backends.end() && it->second == get_backend_metadata();
   {
     std::lock_guard<std::mutex> lock(compatibility_mutex_);
     compatibility_cache_[GidKey(endpoint_info.endpoint_gid)] = compatible;
@@ -82,8 +79,7 @@ MemfdBufferBackend::on_discovering_endpoint(
 }
 
 std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
-  const void * impl,
-  const rmw_topic_endpoint_info_t & endpoint_info) const
+  const void * impl, const rmw_topic_endpoint_info_t & endpoint_info) const
 {
   {
     std::lock_guard<std::mutex> lock(compatibility_mutex_);
@@ -115,8 +111,7 @@ std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
       return nullptr;
     }
 
-    auto descriptor = std::make_shared<
-      memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
+    auto descriptor = std::make_shared<memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
     descriptor->size = memfd_impl->size();
     descriptor->element_type_name = typeid(std::uint8_t).name();
     descriptor->memfd_pid = static_cast<std::int32_t>(getpid());
@@ -132,54 +127,43 @@ std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
 }
 
 std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with_endpoint(
-  const void * descriptor_ptr,
-  const rmw_topic_endpoint_info_t & endpoint_info) const
+  const void * descriptor_ptr, const rmw_topic_endpoint_info_t & endpoint_info) const
 {
   (void)endpoint_info;
   if (descriptor_ptr == nullptr) {
     throw std::runtime_error("null memfd descriptor");
   }
-  const auto & descriptor = *static_cast<
-    const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor_ptr);
+  const auto & descriptor =
+    *static_cast<const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor_ptr);
   if (descriptor.element_type_name != typeid(std::uint8_t).name()) {
     throw std::runtime_error("memfd descriptor element type mismatch");
   }
-  if (descriptor.memfd_pid <= 0 || descriptor.memfd_socket_path.empty() ||
-    descriptor.ipc_uid == 0 || descriptor.memfd_block_size < descriptor.size)
-  {
+  if (
+    descriptor.memfd_pid <= 0 || descriptor.memfd_socket_path.empty() || descriptor.ipc_uid == 0 ||
+    descriptor.memfd_block_size < descriptor.size) {
     throw std::runtime_error("invalid memfd descriptor metadata");
   }
 
   auto imported = MemfdHandleCache::import_block(
-    descriptor.memfd_socket_path,
-    descriptor.memfd_pid,
-    descriptor.memfd_block_id,
-    descriptor.memfd_block_size,
-    descriptor.size,
-    descriptor.ipc_uid);
+    descriptor.memfd_socket_path, descriptor.memfd_pid, descriptor.memfd_block_id,
+    descriptor.memfd_block_size, descriptor.size, descriptor.ipc_uid);
   imported->acquire_reader();
   if (imported->control()->ipc_uid.load(std::memory_order_acquire) != descriptor.ipc_uid) {
     imported->release_reader();
     throw std::runtime_error("stale memfd descriptor raced with block reuse");
   }
 
-  auto reader_release = [imported](std::uint8_t *) {
-      imported->release_reader();
-    };
+  auto reader_release = [imported](std::uint8_t *) { imported->release_reader(); };
   MemfdBuffer buffer(
-    imported->payload(), descriptor.size, std::move(reader_release),
-    imported->control(), imported, descriptor.memfd_block_id,
-    descriptor.memfd_block_size);
+    imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
+    descriptor.memfd_block_id, descriptor.memfd_block_size);
   auto result = std::make_unique<MemfdBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
-  return {
-    result.release(), [](void * ptr) {
-      delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
-    }};
+  return {result.release(), [](void * ptr) {
+            delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
+          }};
 }
 
 }  // namespace memfd_buffer_backend
 
-PLUGINLIB_EXPORT_CLASS(
-  memfd_buffer_backend::MemfdBufferBackend,
-  rosidl::BufferBackend)
+PLUGINLIB_EXPORT_CLASS(memfd_buffer_backend::MemfdBufferBackend, rosidl::BufferBackend)

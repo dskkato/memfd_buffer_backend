@@ -30,8 +30,7 @@ namespace memfd_buffer_backend
 
 inline rosidl::Buffer<std::uint8_t> allocate_buffer(std::size_t count)
 {
-  return rosidl::Buffer<std::uint8_t>(
-    std::make_unique<MemfdBufferImpl<std::uint8_t>>(count));
+  return rosidl::Buffer<std::uint8_t>(std::make_unique<MemfdBufferImpl<std::uint8_t>>(count));
 }
 
 namespace detail
@@ -44,7 +43,7 @@ inline std::shared_ptr<rosidl::Buffer<std::uint8_t>> allocate_memfd_buffer_share
     std::make_unique<MemfdBufferImpl<std::uint8_t>>(byte_count));
 }
 
-template<typename T>
+template <typename T>
 inline MemfdBufferImpl<T> * memfd_impl_of(rosidl::Buffer<T> & buffer)
 {
   return dynamic_cast<MemfdBufferImpl<T> *>(buffer.get_impl());
@@ -52,7 +51,7 @@ inline MemfdBufferImpl<T> * memfd_impl_of(rosidl::Buffer<T> & buffer)
 
 }  // namespace detail
 
-template<typename T>
+template <typename T>
 WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 {
   auto * impl = buffer.get_impl();
@@ -75,7 +74,7 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
   return handle;
 }
 
-template<typename T>
+template <typename T>
 ReadHandle from_input_buffer(const rosidl::Buffer<T> & buffer)
 {
   const auto * impl = buffer.get_impl();

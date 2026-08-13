@@ -30,24 +30,22 @@
 namespace memfd_buffer_backend
 {
 
-inline constexpr std::uint64_t kMemfdControlMagic = 0x4d454d4644425546ULL;  // "MEMFDBUF"
-inline constexpr std::uint32_t kMemfdControlAbiVersion = 1;
 inline constexpr std::uint64_t kMemfdGracePeriodUs = 100000;
+inline constexpr std::uint32_t kMemfdReuseClaimed = (std::uint32_t{1} << 31);
+inline constexpr std::uint32_t kMemfdReaderCountMask = ~kMemfdReuseClaimed;
 
 /// Metadata at the beginning of every mapped memfd region.
 ///
 /// The atomic members are deliberately lock-free Linux atomics.  The header
 /// is shared between processes and must not contain a process-local mutex.
-struct alignas(64) MemfdControlHeader
+struct MemfdControlHeader
 {
-  std::uint64_t magic{kMemfdControlMagic};
-  std::uint32_t abi_version{kMemfdControlAbiVersion};
-  std::uint32_t header_size{sizeof(MemfdControlHeader)};
-  std::uint32_t block_id{0};
-  std::uint32_t reserved{0};
-  std::uint64_t payload_size{0};
+  // Bit 31 claims the block for reuse; bits 0-30 count active readers.
+  // Reader acquisition and reuse claiming both use CAS.
+  // This prevents a reader from appearing after the publisher
+  // observes zero readers but before it starts reusing the block.
+  std::atomic<std::uint32_t> reader_state{0};
   std::atomic<std::uint64_t> ipc_uid{0};
-  std::atomic<std::uint32_t> active_reader_count{0};
   std::atomic<std::uint64_t> publish_timestamp_us{0};
 
   MemfdControlHeader() = default;
@@ -55,9 +53,56 @@ struct alignas(64) MemfdControlHeader
   MemfdControlHeader & operator=(const MemfdControlHeader &) = delete;
 };
 
-static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+inline bool try_acquire_memfd_reader(MemfdControlHeader * control)
+{
+  if (control == nullptr) {
+    return false;
+  }
+
+  auto value = control->reader_state.load(std::memory_order_acquire);
+  for (;;) {
+    if (
+      (value & kMemfdReuseClaimed) != 0 ||
+      (value & kMemfdReaderCountMask) == kMemfdReaderCountMask) {
+      return false;
+    }
+    if (control->reader_state.compare_exchange_weak(
+          value, value + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+      return true;
+    }
+  }
+}
+
+inline bool try_claim_memfd_reuse(MemfdControlHeader * control)
+{
+  if (control == nullptr) {
+    return false;
+  }
+  std::uint32_t expected = 0;
+  return control->reader_state.compare_exchange_strong(
+    expected, kMemfdReuseClaimed, std::memory_order_acq_rel, std::memory_order_acquire);
+}
+
+inline void release_memfd_reader(MemfdControlHeader * control) noexcept
+{
+  if (control != nullptr) {
+    control->reader_state.fetch_sub(1, std::memory_order_release);
+  }
+}
+
+inline void release_memfd_reuse_claim(MemfdControlHeader * control) noexcept
+{
+  if (control != nullptr) {
+    control->reader_state.store(0, std::memory_order_release);
+  }
+}
+
+static_assert(sizeof(MemfdControlHeader) == 24, "memfd control metadata must remain compact");
+static_assert(
+  std::atomic<std::uint64_t>::is_always_lock_free,
   "memfd control metadata requires lock-free uint64 atomics");
-static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
+static_assert(
+  std::atomic<std::uint32_t>::is_always_lock_free,
   "memfd control metadata requires lock-free uint32 atomics");
 
 /// Publisher-side allocation and its stable physical identity.
@@ -110,11 +155,11 @@ public:
   /// Find the block containing a publisher-side payload pointer.
   MemfdBlock * find_block_for_ptr(const void * ptr) const;
 
-  bool is_ipc_capable() const {return ipc_capable_;}
+  bool is_ipc_capable() const { return ipc_capable_; }
 
 private:
   MemfdBlock * create_block(std::size_t payload_size);
-  bool is_block_ready(const MemfdBlock * block) const;
+  bool try_claim_block(MemfdBlock * block) const;
 
   bool initialized_{false};
   bool ipc_capable_{false};

@@ -64,16 +64,16 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
 
   auto descriptor = backend.create_descriptor_with_endpoint(buffer.get_impl(), info);
   ASSERT_NE(nullptr, descriptor);
-  const auto * typed_descriptor = static_cast<
-    const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor.get());
+  const auto * typed_descriptor =
+    static_cast<const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor.get());
   ASSERT_EQ(128u, typed_descriptor->size);
   ASSERT_NE(0u, typed_descriptor->ipc_uid);
 
   auto imported = backend.from_descriptor_with_endpoint(descriptor.get(), info);
   ASSERT_NE(nullptr, imported.get());
   auto * imported_base = static_cast<rosidl::BufferImplBase<std::uint8_t> *>(imported.get());
-  auto * imported_impl = dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(
-    imported_base);
+  auto * imported_impl =
+    dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(imported_base);
   ASSERT_NE(nullptr, imported_impl);
   auto first_copy = imported_impl->to_cpu();
   auto * first_cpu = dynamic_cast<rosidl::CpuBufferImpl<std::uint8_t> *>(first_copy.get());
@@ -85,10 +85,10 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
   // entry without asking the broker for another descriptor mapping.
   auto imported_again = backend.from_descriptor_with_endpoint(descriptor.get(), info);
   ASSERT_NE(nullptr, imported_again.get());
-  auto * imported_again_base = static_cast<rosidl::BufferImplBase<std::uint8_t> *>(
-    imported_again.get());
-  auto * imported_again_impl = dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(
-    imported_again_base);
+  auto * imported_again_base =
+    static_cast<rosidl::BufferImplBase<std::uint8_t> *>(imported_again.get());
+  auto * imported_again_impl =
+    dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(imported_again_base);
   ASSERT_NE(nullptr, imported_again_impl);
   auto second_copy = imported_again_impl->to_cpu();
   auto * second_cpu = dynamic_cast<rosidl::CpuBufferImpl<std::uint8_t> *>(second_copy.get());

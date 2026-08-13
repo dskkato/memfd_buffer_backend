@@ -34,12 +34,9 @@ public:
   MemfdBuffer() = default;
 
   MemfdBuffer(
-    void * payload, std::size_t size,
-    std::function<void(std::uint8_t *)> deleter,
-    MemfdControlHeader * control = nullptr,
-    std::shared_ptr<void> owner = nullptr,
-    std::uint32_t block_id = 0,
-    std::uint64_t mapped_size = 0);
+    void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
+    MemfdControlHeader * control = nullptr, std::shared_ptr<void> owner = nullptr,
+    std::uint32_t block_id = 0, std::uint64_t mapped_size = 0);
 
   ~MemfdBuffer();
 
@@ -55,12 +52,12 @@ public:
 
   void hold_reader_reference();
 
-  std::size_t size() const {return size_;}
-  std::uint8_t * get_ptr() {return data_ptr_;}
-  const std::uint8_t * get_ptr() const {return data_ptr_;}
-  MemfdControlHeader * control() const {return control_;}
-  std::uint32_t block_id() const {return block_id_;}
-  std::uint64_t mapped_size() const {return mapped_size_;}
+  std::size_t size() const { return size_; }
+  std::uint8_t * get_ptr() { return data_ptr_; }
+  const std::uint8_t * get_ptr() const { return data_ptr_; }
+  MemfdControlHeader * control() const { return control_; }
+  std::uint32_t block_id() const { return block_id_; }
+  std::uint64_t mapped_size() const { return mapped_size_; }
 
 private:
   void reset() noexcept;

@@ -53,7 +53,7 @@ public:
   ReadHandle & operator=(ReadHandle && other) noexcept;
   ~ReadHandle();
 
-  const std::uint8_t * get_ptr() const {return data_ptr_;}
+  const std::uint8_t * get_ptr() const { return data_ptr_; }
 
   std::shared_ptr<rosidl::Buffer<std::uint8_t>> get_promoted_buffer() const
   {
@@ -69,9 +69,7 @@ private:
   friend class MemfdBuffer;
 
   ReadHandle(
-    const std::uint8_t * data_ptr,
-    std::shared_ptr<void> reader_lease,
-    std::shared_ptr<void> owner);
+    const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner);
 
   void release() noexcept;
 
@@ -94,7 +92,7 @@ public:
   WriteHandle & operator=(WriteHandle && other) noexcept;
   ~WriteHandle();
 
-  std::uint8_t * get_ptr() {return data_ptr_;}
+  std::uint8_t * get_ptr() { return data_ptr_; }
 
   std::shared_ptr<rosidl::Buffer<std::uint8_t>> get_promoted_buffer() const
   {
@@ -110,9 +108,7 @@ private:
   friend class MemfdBuffer;
 
   WriteHandle(
-    std::uint8_t * data_ptr,
-    std::shared_ptr<HandleState> state,
-    std::shared_ptr<void> owner);
+    std::uint8_t * data_ptr, std::shared_ptr<HandleState> state, std::shared_ptr<void> owner);
 
   void release() noexcept;
 

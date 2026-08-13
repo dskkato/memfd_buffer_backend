@@ -27,7 +27,7 @@ std::string value_of(int argc, char ** argv, const std::string & key, const std:
   return fallback;
 }
 
-template<typename StampT>
+template <typename StampT>
 void set_steady_stamp(StampT & stamp, Clock::time_point time)
 {
   const auto nanoseconds =
@@ -36,7 +36,7 @@ void set_steady_stamp(StampT & stamp, Clock::time_point time)
   stamp.nanosec = static_cast<std::uint32_t>(nanoseconds % 1000000000LL);
 }
 
-template<typename StampT>
+template <typename StampT>
 std::int64_t steady_stamp_to_nanoseconds(const StampT & stamp)
 {
   return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
@@ -64,9 +64,7 @@ public:
   E2eNode(
     const std::string & role, const std::string & mode, std::size_t size, std::size_t count,
     int rate, std::size_t warmup, bool use_intra_process)
-  : Node(
-      "memfd_old_e2e_" + role + "_" + mode,
-      node_options_for(use_intra_process)),
+  : Node("memfd_old_e2e_" + role + "_" + mode, node_options_for(use_intra_process)),
     role_(role),
     mode_(mode),
     communication_(use_intra_process ? "intra_process_va" : "inter_process"),
@@ -79,27 +77,27 @@ public:
 
     if (role_ == "pub" || role_ == "intra") {
       rclcpp::PublisherOptions publisher_options;
-      publisher_options.use_intra_process_comm =
-        use_intra_process_ ? rclcpp::IntraProcessSetting::Enable :
-        rclcpp::IntraProcessSetting::Disable;
+      publisher_options.use_intra_process_comm = use_intra_process_
+                                                   ? rclcpp::IntraProcessSetting::Enable
+                                                   : rclcpp::IntraProcessSetting::Disable;
       publisher_options.intra_process_buffer_type = rclcpp::IntraProcessBufferType::SharedPtr;
       pub_ = create_publisher<Image>("memfd_old_benchmark_image", qos, publisher_options);
       timer_ =
-        create_wall_timer(std::chrono::milliseconds(1000 / rate), [this] {publish_once();});
+        create_wall_timer(std::chrono::milliseconds(1000 / rate), [this] { publish_once(); });
     }
 
     if (role_ == "sub" || role_ == "intra") {
       rclcpp::SubscriptionOptions subscription_options;
-      subscription_options.use_intra_process_comm =
-        use_intra_process_ ? rclcpp::IntraProcessSetting::Enable :
-        rclcpp::IntraProcessSetting::Disable;
+      subscription_options.use_intra_process_comm = use_intra_process_
+                                                      ? rclcpp::IntraProcessSetting::Enable
+                                                      : rclcpp::IntraProcessSetting::Disable;
       subscription_options.intra_process_buffer_type = rclcpp::IntraProcessBufferType::SharedPtr;
       if (mode_ == "memfd") {
         subscription_options.acceptable_buffer_backends = "any";
       }
       sub_ = create_subscription<Image>(
         "memfd_old_benchmark_image", qos,
-        [this](ImageConstSharedPtr msg) {receive(std::move(msg));}, subscription_options);
+        [this](ImageConstSharedPtr msg) { receive(std::move(msg)); }, subscription_options);
     }
   }
 
@@ -149,12 +147,9 @@ private:
   void receive(ImageConstSharedPtr msg)
   {
     const auto backend = msg->data.get_backend_type();
-    if (
-      (mode_ == "memfd" && backend != "memfd") ||
-      (mode_ == "cpu" && backend != "cpu"))
-    {
-      std::cerr << "RESULT,error,backend_mismatch," << communication_ << ',' << mode_ << ',' << backend
-                << std::endl;
+    if ((mode_ == "memfd" && backend != "memfd") || (mode_ == "cpu" && backend != "cpu")) {
+      std::cerr << "RESULT,error,backend_mismatch," << communication_ << ',' << mode_ << ','
+                << backend << std::endl;
       rclcpp::shutdown();
       return;
     }
@@ -182,8 +177,8 @@ private:
       std::chrono::duration_cast<std::chrono::nanoseconds>(end.time_since_epoch()).count() -
       steady_stamp_to_nanoseconds(msg->header.stamp);
     if (latency_ns < 0) {
-      std::cerr << "RESULT,error,negative_latency," << communication_ << ',' << mode_ << ',' << size_
-                << ',' << latency_ns << std::endl;
+      std::cerr << "RESULT,error,negative_latency," << communication_ << ',' << mode_ << ','
+                << size_ << ',' << latency_ns << std::endl;
       rclcpp::shutdown();
       return;
     }
@@ -194,10 +189,9 @@ private:
     }
 
     if (received_ == count_) {
-      std::cout << "RESULT,ok," << communication_ << ',' << mode_ << ',' << size_ << ',' << received_ << ','
-                << latencies_.size() << ',' << va_matches_ << ','
-                << percentile_us(latencies_, 0.50) << ','
-                << percentile_us(latencies_, 0.95) << ','
+      std::cout << "RESULT,ok," << communication_ << ',' << mode_ << ',' << size_ << ','
+                << received_ << ',' << latencies_.size() << ',' << va_matches_ << ','
+                << percentile_us(latencies_, 0.50) << ',' << percentile_us(latencies_, 0.95) << ','
                 << percentile_us(latencies_, 0.99) << std::endl;
       rclcpp::shutdown();
     }
@@ -227,9 +221,7 @@ int main(int argc, char ** argv)
   const auto role = value_of(argc, argv, "--role", "");
   const auto mode = value_of(argc, argv, "--mode", "cpu");
   const bool use_intra_process = role == "intra";
-  if ((role != "pub" && role != "sub" && role != "intra") ||
-    (mode != "cpu" && mode != "memfd"))
-  {
+  if ((role != "pub" && role != "sub" && role != "intra") || (mode != "cpu" && mode != "memfd")) {
     rclcpp::shutdown();
     return 2;
   }

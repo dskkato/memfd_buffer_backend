@@ -38,8 +38,7 @@ namespace
 int create_memfd()
 {
 #ifdef __linux__
-  const int fd = static_cast<int>(syscall(
-      SYS_memfd_create, "rosidl_memfd_buffer", MFD_CLOEXEC));
+  const int fd = static_cast<int>(syscall(SYS_memfd_create, "rosidl_memfd_buffer", MFD_CLOEXEC));
   return fd;
 #else
   errno = ENOTSUP;
@@ -49,9 +48,9 @@ int create_memfd()
 
 std::uint64_t monotonic_time_us()
 {
-  return static_cast<std::uint64_t>(
-    std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now().time_since_epoch()).count());
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch())
+                                      .count());
 }
 
 }  // namespace
@@ -96,7 +95,7 @@ MemfdBlock * MemfdMemoryPool::allocate(std::size_t payload_size)
   if (bucket != free_blocks_.end()) {
     auto & candidates = bucket->second;
     for (std::size_t i = 0; i < candidates.size(); ++i) {
-      if (is_block_ready(candidates[i])) {
+      if (try_claim_block(candidates[i])) {
         block = candidates[i];
         candidates[i] = candidates.back();
         candidates.pop_back();
@@ -119,6 +118,7 @@ MemfdBlock * MemfdMemoryPool::allocate(std::size_t payload_size)
   }
   block->control->ipc_uid.store(block->current_uid, std::memory_order_release);
   block->control->publish_timestamp_us.store(0, std::memory_order_release);
+  release_memfd_reuse_claim(block->control);
   return block;
 }
 
@@ -143,7 +143,7 @@ std::function<void(std::uint8_t *)> MemfdMemoryPool::deleter(MemfdBlock * block)
   } catch (const std::bad_weak_ptr &) {
     throw std::runtime_error("MemfdMemoryPool must be owned by shared_ptr");
   }
-  return [self, block](std::uint8_t *) {self->free(block);};
+  return [self, block](std::uint8_t *) { self->free(block); };
 }
 
 std::uint64_t MemfdMemoryPool::assign_uid(MemfdBlock * block)
@@ -187,8 +187,8 @@ MemfdBlock * MemfdMemoryPool::find_block_for_ptr(const void * ptr) const
   const auto address = reinterpret_cast<std::uintptr_t>(ptr);
   std::lock_guard<std::mutex> lock(mutex_);
   for (const auto & block : all_blocks_) {
-    const auto start = reinterpret_cast<std::uintptr_t>(block->mapping) +
-      sizeof(MemfdControlHeader);
+    const auto start =
+      reinterpret_cast<std::uintptr_t>(block->mapping) + sizeof(MemfdControlHeader);
     const auto end = reinterpret_cast<std::uintptr_t>(block->mapping) + block->mapped_size;
     if (address >= start && address < end) {
       return block.get();
@@ -197,20 +197,19 @@ MemfdBlock * MemfdMemoryPool::find_block_for_ptr(const void * ptr) const
   return nullptr;
 }
 
-bool MemfdMemoryPool::is_block_ready(const MemfdBlock * block) const
+bool MemfdMemoryPool::try_claim_block(MemfdBlock * block) const
 {
   if (block == nullptr || block->control == nullptr) {
     return false;
   }
-  if (block->control->active_reader_count.load(std::memory_order_acquire) != 0) {
-    return false;
-  }
   const auto published = block->control->publish_timestamp_us.load(std::memory_order_acquire);
-  if (published == 0) {
-    return true;
+  if (published != 0) {
+    const auto now = monotonic_time_us();
+    if (now < published || (now - published) < kMemfdGracePeriodUs) {
+      return false;
+    }
   }
-  const auto now = monotonic_time_us();
-  return now >= published && (now - published) >= kMemfdGracePeriodUs;
+  return try_claim_memfd_reuse(block->control);
 }
 
 MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
@@ -225,8 +224,7 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
 
   const int fd = create_memfd();
   if (fd < 0) {
-    throw std::runtime_error(
-            "memfd_create failed: " + std::string(std::strerror(errno)));
+    throw std::runtime_error("memfd_create failed: " + std::string(std::strerror(errno)));
   }
   if (ftruncate(fd, static_cast<off_t>(mapped_size)) != 0) {
     const std::string message = std::strerror(errno);
@@ -248,11 +246,8 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
   block->payload_size = payload_size;
   block->block_id = next_block_id_++;
   block->control = new (mapping) MemfdControlHeader();
-  block->control->header_size = static_cast<std::uint32_t>(sizeof(MemfdControlHeader));
-  block->control->block_id = block->block_id;
-  block->control->payload_size = payload_size;
   block->control->ipc_uid.store(0, std::memory_order_relaxed);
-  block->control->active_reader_count.store(0, std::memory_order_relaxed);
+  block->control->reader_state.store(0, std::memory_order_relaxed);
   block->control->publish_timestamp_us.store(0, std::memory_order_relaxed);
 
   MemfdBlock * result = block.get();

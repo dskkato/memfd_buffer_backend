@@ -33,18 +33,16 @@ namespace memfd_buffer_backend
 class MemfdError : public std::runtime_error
 {
 public:
-  explicit MemfdError(const std::string & message)
-  : std::runtime_error(message) {}
+  explicit MemfdError(const std::string & message) : std::runtime_error(message) {}
 };
 
-template<typename T>
+template <typename T>
 class MemfdBufferImpl : public rosidl::BufferImplBase<T>
 {
 public:
   MemfdBufferImpl() = default;
 
-  explicit MemfdBufferImpl(std::size_t size)
-  : size_(size)
+  explicit MemfdBufferImpl(std::size_t size) : size_(size)
   {
     if (size_ > 0) {
       allocate(size_);
@@ -52,7 +50,9 @@ public:
   }
 
   MemfdBufferImpl(MemfdBuffer && buffer, std::size_t size)
-  : size_(size), memfd_buffer_(std::move(buffer)) {}
+  : size_(size), memfd_buffer_(std::move(buffer))
+  {
+  }
 
   ~MemfdBufferImpl() override = default;
 
@@ -61,8 +61,8 @@ public:
   MemfdBufferImpl(MemfdBufferImpl &&) = delete;
   MemfdBufferImpl & operator=(MemfdBufferImpl &&) = delete;
 
-  std::string get_backend_type() const override {return "memfd";}
-  std::size_t size() const override {return size_;}
+  std::string get_backend_type() const override { return "memfd"; }
+  std::size_t size() const override { return size_; }
 
   void resize(std::size_t size)
   {
@@ -114,20 +114,16 @@ public:
     return copy;
   }
 
-  MemfdBuffer & get_memfd_buffer() {return memfd_buffer_;}
-  const MemfdBuffer & get_memfd_buffer() const {return memfd_buffer_;}
+  MemfdBuffer & get_memfd_buffer() { return memfd_buffer_; }
+  const MemfdBuffer & get_memfd_buffer() const { return memfd_buffer_; }
 
   static std::shared_ptr<MemfdMemoryPool> get_or_create_global_pool()
   {
-    static std::shared_ptr<MemfdMemoryPool> pool =
-      std::make_shared<MemfdMemoryPool>();
+    static std::shared_ptr<MemfdMemoryPool> pool = std::make_shared<MemfdMemoryPool>();
     return pool;
   }
 
-  static bool is_pool_ipc_capable()
-  {
-    return get_or_create_global_pool()->is_ipc_capable();
-  }
+  static bool is_pool_ipc_capable() { return get_or_create_global_pool()->is_ipc_capable(); }
 
 private:
   static std::size_t byte_count(std::size_t count)
@@ -144,21 +140,17 @@ private:
     const std::size_t bytes = byte_count(count);
     MemfdBlock * block = pool->allocate(bytes);
     auto deleter = pool->deleter(block);
-    auto * payload = reinterpret_cast<std::uint8_t *>(block->mapping) +
-      sizeof(MemfdControlHeader);
+    auto * payload = reinterpret_cast<std::uint8_t *>(block->mapping) + sizeof(MemfdControlHeader);
     return MemfdBuffer(
-      payload, bytes, std::move(deleter), block->control, nullptr,
-      block->block_id, block->mapped_size);
+      payload, bytes, std::move(deleter), block->control, nullptr, block->block_id,
+      block->mapped_size);
   }
 
-  void allocate(std::size_t count)
-  {
-    memfd_buffer_ = allocate_raw(count);
-  }
+  void allocate(std::size_t count) { memfd_buffer_ = allocate_raw(count); }
 
-  template<typename U>
+  template <typename U>
   friend class MemfdBufferImpl;
-  template<typename U>
+  template <typename U>
   friend class MemfdBufferApiAccess;
 
   std::size_t size_{0};

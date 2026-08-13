@@ -27,7 +27,7 @@ class HostEndpointManager
 public:
   HostEndpointManager();
 
-  const std::string & metadata() const {return metadata_;}
+  const std::string & metadata() const { return metadata_; }
 
 private:
   std::string metadata_;

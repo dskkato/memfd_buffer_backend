@@ -59,17 +59,15 @@ private:
 class MemfdImportedBlock
 {
 public:
-  MemfdImportedBlock(
-    int memfd, void * mapping, std::size_t mapped_size,
-    std::string socket_path);
+  MemfdImportedBlock(int memfd, void * mapping, std::size_t mapped_size, std::string socket_path);
   ~MemfdImportedBlock();
 
   MemfdImportedBlock(const MemfdImportedBlock &) = delete;
   MemfdImportedBlock & operator=(const MemfdImportedBlock &) = delete;
 
-  MemfdControlHeader * control() const {return control_;}
+  MemfdControlHeader * control() const { return control_; }
   std::uint8_t * payload() const;
-  std::size_t mapped_size() const {return mapped_size_;}
+  std::size_t mapped_size() const { return mapped_size_; }
 
   void acquire_reader();
   void release_reader() noexcept;
@@ -88,21 +86,13 @@ class MemfdHandleCache
 {
 public:
   static std::shared_ptr<MemfdImportedBlock> import_block(
-    const std::string & socket_path,
-    std::int32_t pid,
-    std::uint32_t block_id,
-    std::uint64_t mapped_size,
-    std::uint64_t payload_size,
-    std::uint64_t expected_uid);
+    const std::string & socket_path, std::int32_t pid, std::uint32_t block_id,
+    std::uint64_t mapped_size, std::uint64_t payload_size, std::uint64_t expected_uid);
 
 private:
   static int receive_fd_from_socket(const std::string & socket_path);
   static void validate(
-    const MemfdImportedBlock & block,
-    std::int32_t pid,
-    std::uint32_t block_id,
-    std::uint64_t mapped_size,
-    std::uint64_t payload_size,
+    const MemfdImportedBlock & block, std::uint64_t mapped_size, std::uint64_t payload_size,
     std::uint64_t expected_uid);
 };
 

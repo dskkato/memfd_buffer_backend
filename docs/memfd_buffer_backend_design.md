@@ -93,13 +93,13 @@ sequenceDiagram
     Sub->>Cache: insert imported mapping
   end
 
-  Sub->>Sub: validate magic, size, block ID, and ipc_uid
-  Sub->>Sub: acquire logical reader reference
+  Sub->>Sub: validate mapping size and ipc_uid
+  Sub->>Sub: CAS acquire reader reference if reuse is not claimed
   Sub-->>Sub: deliver memfd-backed Buffer and ReadHandle
 
   Note over Sub: ReadHandle destruction
   Sub->>Sub: release logical reader reference
-  Note over Pool: reuse only after readers == 0 and grace period elapsed
+  Note over Pool: CAS claim reuse only after readers == 0 and grace period elapsed
 ```
 
 The first descriptor for a block causes the subscriber to request and map the
@@ -156,8 +156,7 @@ stored the current UID in the control header. The subscriber must validate the
 descriptor against the control header before returning a buffer to user code:
 returning a buffer to user code:
 
-- ABI magic and control-header version match.
-- Block ID and payload size match the descriptor.
+- Descriptor payload size fits within the mapped block size.
 - The control-header UID equals `ipc_uid`.
 
 Any mismatch is a stale or invalid publication and must not expose the mapping
@@ -217,10 +216,8 @@ The control header contains the minimum shared state needed for publication
 validation and reuse protection:
 
 ```text
-magic / ABI version
-block_id / payload_size
 ipc_uid
-active_reader_count
+reader_state (MSB is reuse-claim bit; lower 31 bits are the reader count)
 publish_timestamp
 ```
 
@@ -232,17 +229,23 @@ process-local mutex.
 
 ```mermaid
 flowchart TD
-  A["Free block in size bucket"] --> B{"active readers == 0?"}
+  A["Free block in size bucket"] --> B{"100 ms since last publish?"}
   B -->|no| A
-  B -->|yes| C{"100 ms since last publish?"}
-  C -->|no| A
-  C -->|yes| D["reserve block"]
+  B -->|yes| C["CAS readers 0 to reuse claim"]
+  C -->|fail| A
+  C -->|success| D["reserve block"]
   D --> E["assign new ipc_uid"]
   E --> F["WriteHandle writes payload"]
   F --> G["finalize and publish descriptor"]
   G --> H["record publish timestamp"]
   H --> A
 ```
+
+The most-significant bit of `reader_state` is a reuse-claim flag; the remaining
+31 bits count active readers. The publisher claims reuse with a CAS from zero
+to the claim bit. Reader acquisition also uses a CAS and fails while the claim
+bit is set. Thus a reader cannot appear between the publisher's zero-reader
+check and the start of reuse.
 
 The 100 ms grace period is the same safety window used by the CUDA backend.
 It protects against a descriptor that has been published but has not yet
@@ -252,7 +255,7 @@ that arrives after the block has been reused is rejected by UID validation.
 The pool's logical reader count is necessary even though memfd itself is
 reference-counted. Kernel references guarantee that the bytes remain mapped;
 they do not tell the publisher whether a subscriber is still reading before
-the next publication. The count therefore protects against concurrent reuse,
+the next publication. The count and reuse claim therefore protect against concurrent reuse,
 while the memfd reference count handles final object cleanup.
 
 ## Memfd buffer state machine
@@ -292,7 +295,7 @@ The states have the following meaning:
 
 When a block is reserved for reuse, its `ipc_uid` is changed before the next
 write begins so descriptors for the previous publication become stale. The
-state transition is process-local; `ipc_uid`, `active_reader_count`, and
+state transition is process-local; `ipc_uid`, `reader_state`, and
 `publish_timestamp` remain the shared cross-process lifetime metadata.
 
 ## WriteHandle and ReadHandle
@@ -391,8 +394,8 @@ unvalidated memory.
 
 - `memfd_create`, `ftruncate`, `mmap`, broker setup, or FD transfer failure
   selects CPU fallback or reports allocation failure to the caller.
-- A malformed descriptor, ABI mismatch, size mismatch, invalid block ID, or
-  UID mismatch is rejected as stale data.
+- A malformed descriptor, size mismatch, or UID mismatch is rejected as stale
+  data.
 - The publisher stops accepting new broker requests before destroying a pool
   block and removes the socket path as a best-effort filesystem cleanup.
 - Closing the publisher FD does not force-delete a payload still referenced by
@@ -430,7 +433,8 @@ The implementation should provide coverage for the following scenarios:
 - refusal to reuse a block while a `ReadHandle` is active or while the 100 ms
   grace period has not elapsed;
 - successful multi-subscriber FD distribution and cache-hit mapping reuse;
-- payload-size, block-ID, ABI, and UID validation failures;
+- mapping-size and UID validation failures;
+- mutual exclusion between reuse claiming and reader acquisition;
 - stale descriptor rejection after block reuse;
 - write finalization followed by visible subscriber reads without CUDA event
   operations;

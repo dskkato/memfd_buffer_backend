@@ -94,10 +94,7 @@ struct MemfdFdBroker::FDDispatcher
     thread_ = std::thread(&FDDispatcher::run, this);
   }
 
-  ~FDDispatcher()
-  {
-    stop();
-  }
+  ~FDDispatcher() { stop(); }
 
   bool add_socket(int server_socket, int fd_to_serve)
   {
@@ -221,8 +218,7 @@ private:
   std::atomic<bool> running_{false};
 };
 
-MemfdFdBroker::MemfdFdBroker()
-: dispatcher_(get_dispatcher()) {}
+MemfdFdBroker::MemfdFdBroker() : dispatcher_(get_dispatcher()) {}
 
 MemfdFdBroker::~MemfdFdBroker()
 {
@@ -238,8 +234,7 @@ MemfdFdBroker::~MemfdFdBroker()
 
 std::shared_ptr<MemfdFdBroker::FDDispatcher> MemfdFdBroker::get_dispatcher()
 {
-  static auto * dispatcher = new std::shared_ptr<FDDispatcher>(
-    std::make_shared<FDDispatcher>());
+  static auto * dispatcher = new std::shared_ptr<FDDispatcher>(std::make_shared<FDDispatcher>());
   return *dispatcher;
 }
 
@@ -255,9 +250,9 @@ int MemfdFdBroker::create_fd_server_socket(const std::string & path)
   }
   unlink(path.c_str());
   const sockaddr_un address = unix_address(path);
-  if (bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
-    listen(socket, 32) != 0 || chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0)
-  {
+  if (
+    bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
+    listen(socket, 32) != 0 || chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
     close(socket);
     unlink(path.c_str());
     return -1;
@@ -277,7 +272,7 @@ std::string MemfdFdBroker::register_block(MemfdBlock * block)
   }
 
   const std::string path = "/tmp/memfd_buffer_" + std::to_string(getpid()) + "_" +
-    std::to_string(block->block_id) + ".sock";
+                           std::to_string(block->block_id) + ".sock";
   const int server_socket = create_fd_server_socket(path);
   if (server_socket < 0 || !dispatcher_->add_socket(server_socket, block->memfd)) {
     if (server_socket >= 0) {
@@ -285,7 +280,7 @@ std::string MemfdFdBroker::register_block(MemfdBlock * block)
     }
     unlink(path.c_str());
     throw std::runtime_error(
-            "failed to create memfd FD broker socket: " + std::string(std::strerror(errno)));
+      "failed to create memfd FD broker socket: " + std::string(std::strerror(errno)));
   }
   registered_blocks_.emplace(block->block_id, RegisteredBlock{server_socket, path});
   block->socket_path = path;
@@ -294,8 +289,13 @@ std::string MemfdFdBroker::register_block(MemfdBlock * block)
 
 MemfdImportedBlock::MemfdImportedBlock(
   int memfd, void * mapping, std::size_t mapped_size, std::string socket_path)
-: memfd_(memfd), mapping_(mapping), mapped_size_(mapped_size),
-  control_(static_cast<MemfdControlHeader *>(mapping)), socket_path_(std::move(socket_path)) {}
+: memfd_(memfd),
+  mapping_(mapping),
+  mapped_size_(mapped_size),
+  control_(static_cast<MemfdControlHeader *>(mapping)),
+  socket_path_(std::move(socket_path))
+{
+}
 
 MemfdImportedBlock::~MemfdImportedBlock()
 {
@@ -317,13 +317,15 @@ void MemfdImportedBlock::acquire_reader()
   if (control_ == nullptr) {
     throw std::runtime_error("cannot acquire a reader for an unmapped memfd");
   }
-  control_->active_reader_count.fetch_add(1, std::memory_order_acq_rel);
+  if (!try_acquire_memfd_reader(control_)) {
+    throw std::runtime_error("memfd block is being reused");
+  }
 }
 
 void MemfdImportedBlock::release_reader() noexcept
 {
   if (control_ != nullptr) {
-    control_->active_reader_count.fetch_sub(1, std::memory_order_release);
+    release_memfd_reader(control_);
   }
 }
 
@@ -338,8 +340,7 @@ struct CacheKey
 
   bool operator==(const CacheKey & other) const
   {
-    return pid == other.pid && block_id == other.block_id &&
-           socket_path == other.socket_path;
+    return pid == other.pid && block_id == other.block_id && socket_path == other.socket_path;
   }
 };
 
@@ -348,10 +349,9 @@ struct CacheKeyHash
   std::size_t operator()(const CacheKey & key) const
   {
     std::size_t result = std::hash<std::int32_t>{}(key.pid);
-    result ^= std::hash<std::uint32_t>{}(key.block_id) + 0x9e3779b9 + (result << 6) +
-    (result >> 2);
-    result ^= std::hash<std::string>{}(key.socket_path) + 0x9e3779b9 +
-    (result << 6) + (result >> 2);
+    result ^= std::hash<std::uint32_t>{}(key.block_id) + 0x9e3779b9 + (result << 6) + (result >> 2);
+    result ^=
+      std::hash<std::string>{}(key.socket_path) + 0x9e3779b9 + (result << 6) + (result >> 2);
     return result;
   }
 };
@@ -402,9 +402,9 @@ int MemfdHandleCache::receive_fd_from_socket(const std::string & socket_path)
     throw std::runtime_error("memfd broker returned no descriptor");
   }
   cmsghdr * cmsg = CMSG_FIRSTHDR(&message);
-  if (cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET ||
-    cmsg->cmsg_type != SCM_RIGHTS || cmsg->cmsg_len < CMSG_LEN(sizeof(int)))
-  {
+  if (
+    cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS ||
+    cmsg->cmsg_len < CMSG_LEN(sizeof(int))) {
     throw std::runtime_error("memfd broker returned an invalid control message");
   }
   int fd = -1;
@@ -417,30 +417,15 @@ int MemfdHandleCache::receive_fd_from_socket(const std::string & socket_path)
 }
 
 void MemfdHandleCache::validate(
-  const MemfdImportedBlock & block,
-  std::int32_t pid,
-  std::uint32_t block_id,
-  std::uint64_t mapped_size,
-  std::uint64_t payload_size,
+  const MemfdImportedBlock & block, std::uint64_t mapped_size, std::uint64_t payload_size,
   std::uint64_t expected_uid)
 {
   const MemfdControlHeader * control = block.control();
-  if (control == nullptr || mapped_size != block.mapped_size() ||
-    mapped_size < sizeof(MemfdControlHeader) || payload_size >
-    mapped_size - sizeof(MemfdControlHeader))
-  {
+  if (
+    control == nullptr || mapped_size != block.mapped_size() ||
+    mapped_size < sizeof(MemfdControlHeader) ||
+    payload_size > mapped_size - sizeof(MemfdControlHeader)) {
     throw std::runtime_error("invalid memfd mapping size");
-  }
-  if (control->magic != kMemfdControlMagic ||
-    control->abi_version != kMemfdControlAbiVersion ||
-    control->header_size != sizeof(MemfdControlHeader))
-  {
-    throw std::runtime_error("memfd control header ABI mismatch");
-  }
-  if (control->block_id != block_id || control->payload_size != payload_size) {
-    throw std::runtime_error(
-            "memfd descriptor block identity or payload size mismatch for pid " +
-            std::to_string(pid));
   }
   if (expected_uid == 0) {
     throw std::runtime_error("memfd descriptor contains a zero publication UID");
@@ -451,36 +436,34 @@ void MemfdHandleCache::validate(
 }
 
 std::shared_ptr<MemfdImportedBlock> MemfdHandleCache::import_block(
-  const std::string & socket_path,
-  std::int32_t pid,
-  std::uint32_t block_id,
-  std::uint64_t mapped_size,
-  std::uint64_t payload_size,
-  std::uint64_t expected_uid)
+  const std::string & socket_path, std::int32_t pid, std::uint32_t block_id,
+  std::uint64_t mapped_size, std::uint64_t payload_size, std::uint64_t expected_uid)
 {
-  if (mapped_size < sizeof(MemfdControlHeader) || mapped_size >
-    static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
-  {
+  if (
+    mapped_size < sizeof(MemfdControlHeader) ||
+    mapped_size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
     throw std::runtime_error("invalid memfd descriptor mapping size");
   }
   std::lock_guard<std::mutex> lock(cache_mutex());
   const CacheKey key{pid, block_id, socket_path};
   auto existing = cache().find(key);
   if (existing != cache().end()) {
-    validate(*existing->second, pid, block_id, mapped_size, payload_size, expected_uid);
+    validate(*existing->second, mapped_size, payload_size, expected_uid);
     return existing->second;
   }
 
   const int fd = receive_fd_from_socket(socket_path);
-  struct stat stat_buffer{};
-  if (fstat(fd, &stat_buffer) != 0 || stat_buffer.st_size < 0 ||
-    static_cast<std::uint64_t>(stat_buffer.st_size) != mapped_size)
+  struct stat stat_buffer
   {
+  };
+  if (
+    fstat(fd, &stat_buffer) != 0 || stat_buffer.st_size < 0 ||
+    static_cast<std::uint64_t>(stat_buffer.st_size) != mapped_size) {
     close(fd);
     throw std::runtime_error("memfd size does not match descriptor message");
   }
-  void * mapping = mmap(
-    nullptr, static_cast<std::size_t>(mapped_size), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void * mapping =
+    mmap(nullptr, static_cast<std::size_t>(mapped_size), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (mapping == MAP_FAILED) {
     const std::string message = std::strerror(errno);
     close(fd);
@@ -490,7 +473,7 @@ std::shared_ptr<MemfdImportedBlock> MemfdHandleCache::import_block(
   auto imported = std::make_shared<MemfdImportedBlock>(
     fd, mapping, static_cast<std::size_t>(mapped_size), socket_path);
   try {
-    validate(*imported, pid, block_id, mapped_size, payload_size, expected_uid);
+    validate(*imported, mapped_size, payload_size, expected_uid);
   } catch (...) {
     imported.reset();
     throw;

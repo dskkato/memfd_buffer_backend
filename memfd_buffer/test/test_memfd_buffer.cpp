@@ -26,6 +26,27 @@
 namespace
 {
 
+TEST(MemfdBufferTest, ReuseClaimSynchronizesReaderAcquisition)
+{
+  memfd_buffer_backend::MemfdControlHeader control;
+
+  EXPECT_TRUE(memfd_buffer_backend::try_acquire_memfd_reader(&control));
+  EXPECT_FALSE(memfd_buffer_backend::try_claim_memfd_reuse(&control));
+  memfd_buffer_backend::release_memfd_reader(&control);
+
+  EXPECT_TRUE(memfd_buffer_backend::try_claim_memfd_reuse(&control));
+  EXPECT_EQ(
+    memfd_buffer_backend::kMemfdReuseClaimed, control.reader_state.load(std::memory_order_acquire));
+  EXPECT_FALSE(memfd_buffer_backend::try_acquire_memfd_reader(&control));
+
+  control.ipc_uid.store(42, std::memory_order_release);
+  memfd_buffer_backend::release_memfd_reuse_claim(&control);
+  EXPECT_TRUE(memfd_buffer_backend::try_acquire_memfd_reader(&control));
+  EXPECT_EQ(1u, control.reader_state.load(std::memory_order_acquire));
+  memfd_buffer_backend::release_memfd_reader(&control);
+  EXPECT_EQ(0u, control.reader_state.load(std::memory_order_acquire));
+}
+
 TEST(MemfdBufferTest, AllocateWriteReadAndCpuCopy)
 {
   auto buffer = memfd_buffer_backend::allocate_buffer(64);

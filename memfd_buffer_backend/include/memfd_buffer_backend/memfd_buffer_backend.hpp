@@ -38,22 +38,19 @@ public:
   MemfdBufferBackend();
   ~MemfdBufferBackend() override = default;
 
-  std::string get_backend_type() const override {return "memfd";}
+  std::string get_backend_type() const override { return "memfd"; }
   std::string get_backend_metadata() const override;
 
   const rosidl_message_type_support_t * get_descriptor_type_support() const override;
   std::shared_ptr<void> create_empty_descriptor() const override;
 
   std::shared_ptr<void> create_descriptor_with_endpoint(
-    const void * impl,
-    const rmw_topic_endpoint_info_t & endpoint_info) const override;
+    const void * impl, const rmw_topic_endpoint_info_t & endpoint_info) const override;
 
   std::unique_ptr<void, void (*)(void *)> from_descriptor_with_endpoint(
-    const void * descriptor,
-    const rmw_topic_endpoint_info_t & endpoint_info) const override;
+    const void * descriptor, const rmw_topic_endpoint_info_t & endpoint_info) const override;
 
-  void on_creating_endpoint(
-    const rmw_topic_endpoint_info_t & endpoint_info) const override;
+  void on_creating_endpoint(const rmw_topic_endpoint_info_t & endpoint_info) const override;
 
   std::pair<bool, std::vector<std::set<std::uint32_t>>> on_discovering_endpoint(
     const rmw_topic_endpoint_info_t & endpoint_info,
@@ -70,7 +67,7 @@ private:
       std::copy(raw, raw + RMW_GID_STORAGE_SIZE, data.begin());
     }
 
-    bool operator==(const GidKey & other) const {return data == other.data;}
+    bool operator==(const GidKey & other) const { return data == other.data; }
   };
 
   struct GidKeyHash

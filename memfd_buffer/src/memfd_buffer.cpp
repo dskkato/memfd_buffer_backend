@@ -27,20 +27,22 @@ std::shared_ptr<void> make_lease(MemfdControlHeader * control)
   if (control == nullptr) {
     return {};
   }
-  control->active_reader_count.fetch_add(1, std::memory_order_acq_rel);
+  if (!try_acquire_memfd_reader(control)) {
+    throw std::runtime_error("memfd block is being reused");
+  }
   return std::shared_ptr<void>(control, [](void * ptr) {
-             auto * header = static_cast<MemfdControlHeader *>(ptr);
-             header->active_reader_count.fetch_sub(1, std::memory_order_release);
-    });
+    auto * header = static_cast<MemfdControlHeader *>(ptr);
+    release_memfd_reader(header);
+  });
 }
 
 }  // namespace
 
 ReadHandle::ReadHandle(
-  const std::uint8_t * data_ptr,
-  std::shared_ptr<void> reader_lease,
-  std::shared_ptr<void> owner)
-: data_ptr_(data_ptr), reader_lease_(std::move(reader_lease)), owner_(std::move(owner)) {}
+  const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner)
+: data_ptr_(data_ptr), reader_lease_(std::move(reader_lease)), owner_(std::move(owner))
+{
+}
 
 ReadHandle::ReadHandle(ReadHandle && other) noexcept
 : data_ptr_(other.data_ptr_),
@@ -64,10 +66,7 @@ ReadHandle & ReadHandle::operator=(ReadHandle && other) noexcept
   return *this;
 }
 
-ReadHandle::~ReadHandle()
-{
-  release();
-}
+ReadHandle::~ReadHandle() { release(); }
 
 void ReadHandle::release() noexcept
 {
@@ -78,14 +77,16 @@ void ReadHandle::release() noexcept
 }
 
 WriteHandle::WriteHandle(
-  std::uint8_t * data_ptr,
-  std::shared_ptr<HandleState> state,
-  std::shared_ptr<void> owner)
-: data_ptr_(data_ptr), state_(std::move(state)), owner_(std::move(owner)) {}
+  std::uint8_t * data_ptr, std::shared_ptr<HandleState> state, std::shared_ptr<void> owner)
+: data_ptr_(data_ptr), state_(std::move(state)), owner_(std::move(owner))
+{
+}
 
 WriteHandle::WriteHandle(WriteHandle && other) noexcept
-: data_ptr_(other.data_ptr_), state_(std::move(other.state_)),
-  owner_(std::move(other.owner_)), promoted_buffer_(std::move(other.promoted_buffer_))
+: data_ptr_(other.data_ptr_),
+  state_(std::move(other.state_)),
+  owner_(std::move(other.owner_)),
+  promoted_buffer_(std::move(other.promoted_buffer_))
 {
   other.data_ptr_ = nullptr;
 }
@@ -103,10 +104,7 @@ WriteHandle & WriteHandle::operator=(WriteHandle && other) noexcept
   return *this;
 }
 
-WriteHandle::~WriteHandle()
-{
-  release();
-}
+WriteHandle::~WriteHandle() { release(); }
 
 void WriteHandle::release() noexcept
 {
@@ -120,15 +118,16 @@ void WriteHandle::release() noexcept
 }
 
 MemfdBuffer::MemfdBuffer(
-  void * payload, std::size_t size,
-  std::function<void(std::uint8_t *)> deleter,
-  MemfdControlHeader * control,
-  std::shared_ptr<void> owner,
-  std::uint32_t block_id,
+  void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
+  MemfdControlHeader * control, std::shared_ptr<void> owner, std::uint32_t block_id,
   std::uint64_t mapped_size)
-: data_ptr_(static_cast<std::uint8_t *>(payload)), size_(size),
-  deleter_(std::move(deleter)), control_(control), owner_(std::move(owner)),
-  block_id_(block_id), mapped_size_(mapped_size)
+: data_ptr_(static_cast<std::uint8_t *>(payload)),
+  size_(size),
+  deleter_(std::move(deleter)),
+  control_(control),
+  owner_(std::move(owner)),
+  block_id_(block_id),
+  mapped_size_(mapped_size)
 {
   if (data_ptr_ == nullptr && size_ != 0) {
     throw std::invalid_argument("MemfdBuffer payload must not be null");
@@ -138,16 +137,17 @@ MemfdBuffer::MemfdBuffer(
   }
 }
 
-MemfdBuffer::~MemfdBuffer()
-{
-  reset();
-}
+MemfdBuffer::~MemfdBuffer() { reset(); }
 
 MemfdBuffer::MemfdBuffer(MemfdBuffer && other) noexcept
-: data_ptr_(other.data_ptr_), size_(other.size_), deleter_(std::move(other.deleter_)),
-  control_(other.control_), owner_(std::move(other.owner_)),
+: data_ptr_(other.data_ptr_),
+  size_(other.size_),
+  deleter_(std::move(other.deleter_)),
+  control_(other.control_),
+  owner_(std::move(other.owner_)),
   held_reader_lease_(std::move(other.held_reader_lease_)),
-  handle_state_(std::move(other.handle_state_)), block_id_(other.block_id_),
+  handle_state_(std::move(other.handle_state_)),
+  block_id_(other.block_id_),
   mapped_size_(other.mapped_size_)
 {
   other.data_ptr_ = nullptr;
