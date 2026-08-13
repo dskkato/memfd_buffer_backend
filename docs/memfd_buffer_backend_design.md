@@ -141,10 +141,6 @@ the broker socket.
 | `memfd_socket_path` | Private Unix-domain socket used to receive the memfd via `SCM_RIGHTS`. |
 | `ipc_uid` | Non-zero publication UID used to reject a descriptor for an older reuse generation. |
 
-For pathname-based Unix sockets, `memfd_socket_path` must fit within Linux's
-`sockaddr_un::sun_path` limit, including the terminating null byte. The broker
-must reject or otherwise handle paths that exceed this limit.
-
 The cache key must identify the physical imported block, not an individual
 publication. It therefore includes the publisher process identity, stable
 block ID, and broker socket path, but not `ipc_uid`. The UID remains a
@@ -356,19 +352,14 @@ handle before calling `publish()`. The operation is idempotent; destroying a
 still-live handle later is a no-op after explicit finalization. The publisher
 must not use the handle's mutable pointer after finalization or publication.
 
-There is no CUDA stream argument, event allocation, event record, or event
-enqueue. Finalization only changes local state; it is not an asynchronous
-completion mechanism.
-
 ### ReadHandle
 
 `from_input_buffer()` returns a move-only `ReadHandle` with a const pointer. It
 holds the imported mapping/cache entry, one process-local read-access slot, and
 one logical inter-process reader reference (when applicable) for the duration
-of the handle. Its destructor releases those references. It does not enqueue a
-read event, wait for a stream, or use a deferred event recycler. Acquiring a
-read handle while a write handle is active is an error; a write handle must be
-destroyed or explicitly finalized first. Multiple read handles may coexist.
+of the handle. Its destructor releases those references. Acquiring a read handle
+while a write handle is active is an error; a write handle must be destroyed or
+explicitly finalized first. Multiple read handles may coexist.
 
 The caller must keep the handle alive for the entire period in which the
 returned pointer is accessed. Accessing the pointer after handle destruction
@@ -376,15 +367,18 @@ or concurrently modifying it is outside the backend contract.
 
 ### Promotion and CPU buffers
 
-The API accepts generic `rosidl::Buffer<T>` values just as the CUDA API does:
+The API accepts generic `rosidl::Buffer<T>` values as the CUDA backend API does:
 
 - `from_output_buffer()` accepts only an existing memfd-backed buffer. It rejects
   non-memfd buffers rather than creating a detached promoted buffer: the
   publisher serializes the buffer stored in the message field, not a buffer
   held only by the `WriteHandle`.
+  - See also https://github.com/ros2/rosidl_buffer_backends/issues/8
 - `from_input_buffer()` promotes a non-memfd buffer by allocating a pooled
   memfd buffer and performing a synchronous CPU `memcpy` into it. The returned
   read handle then exposes the memfd-backed copy.
+  - Currently, promotion from other backends may require extra copy steps, such as
+    CUDA -> CPU -> memfd, even though a direct CUDA-to-memfd copy may be possible.
 
 The promotion path is an adaptation path, not the zero-copy inter-process
 transport path.
@@ -414,76 +408,3 @@ may retain a mapping after the publisher reuses the block; the UID check keeps
 old descriptors from being interpreted as the new publication. The publisher
 must keep a stable block/socket identity for the lifetime of a cached mapping
 and must not silently replace the memfd behind an existing cache key.
-
-## Backend plugin behavior
-
-`MemfdBufferBackend` implements the standard `rosidl::BufferBackend` hooks:
-
-1. `get_backend_type()` returns `memfd`.
-2. `get_backend_metadata()` returns the host and effective-user identity used
-   by endpoint discovery.
-3. `on_discovering_endpoint()` selects memfd only for compatible endpoints.
-4. `create_descriptor_with_endpoint()` finalizes the source buffer's write
-   state, registers its block with the broker, and creates a descriptor
-   containing the block identity and current UID.
-5. `from_descriptor_with_endpoint()` obtains or reuses the imported mapping,
-   validates the control header, acquires a reader reference, and returns a
-   memfd-backed `BufferImpl` with an RAII deleter.
-
-If any optimized-path precondition fails, the hook returns a CPU-backed
-implementation or declines the memfd descriptor so the normal RMW fallback
-can serialize the payload. Import errors must not expose partially mapped or
-unvalidated memory.
-
-## Failure and shutdown behavior
-
-- `memfd_create`, `ftruncate`, `mmap`, broker setup, or FD transfer failure
-  selects CPU fallback or reports allocation failure to the caller.
-- A malformed descriptor, size mismatch, or UID mismatch is rejected as stale
-  data.
-- The publisher stops accepting new broker requests before destroying a pool
-  block and removes the socket path as a best-effort filesystem cleanup.
-- Closing the publisher FD does not force-delete a payload still referenced by
-  a subscriber. The kernel reclaims the memfd only after all FD and mapping
-  references are gone.
-- Pool destruction must not overwrite or unmap a block while an active local
-  buffer or logical reader reference still owns it. If a safe shutdown cannot
-  be established, the block is quarantined until process exit rather than
-  being reused unsafely.
-
-## Related implementation areas
-
-The design is derived from these repository-local sources:
-
-- `src/rosidl_buffer_backends/docs/cuda_buffer_backend_design.md` for the
-  document structure and lifecycle diagrams.
-- `src/rosidl_buffer_backends/cuda_buffer_backend/cuda_buffer/` for the
-  size-aware memory pool, persistent FD dispatcher, import cache, UID/stale
-  validation, and `WriteHandle` / `ReadHandle` API shape.
-- `src/rosidl_memfd_buffer_backend/memfd_buffer/` and
-  `src/rosidl_memfd_buffer_backend/memfd_buffer_backend/` for the previous
-  memfd mapping, control-header, broker, descriptor, and plugin PoC.
-- `src/memfd_buffer_backend/memfd_buffer_backend_msgs/msg/MemfdBufferDescriptor.msg`
-  for the current descriptor field names in the new backend workspace.
-
-The previous PoC is implementation evidence, not the final ownership
-contract.
-
-## Validation plan
-
-The implementation should provide coverage for the following scenarios:
-
-- allocation and reuse of same-size pool blocks, with separate buckets for
-  different payload sizes;
-- refusal to reuse a block while a `ReadHandle` is active or while the 100 ms
-  grace period has not elapsed;
-- successful multi-subscriber FD distribution and cache-hit mapping reuse;
-- mapping-size and UID validation failures;
-- mutual exclusion between reuse claiming and reader acquisition;
-- stale descriptor rejection after block reuse;
-- write finalization followed by visible subscriber reads without CUDA event
-  operations;
-- same-host/same-user capability selection and CPU fallback for incompatible
-  endpoints; and
-- cleanup after publisher or subscriber process termination without a named
-  shared-memory orphan cleanup protocol.
