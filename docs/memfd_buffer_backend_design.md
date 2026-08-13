@@ -333,10 +333,10 @@ or concurrently modifying it is outside the backend contract.
 
 The API accepts generic `rosidl::Buffer<T>` values just as the CUDA API does:
 
-- `from_output_buffer()` promotes a non-memfd buffer to a fresh pooled memfd
-  buffer without copying, because the caller is about to overwrite it. The
-  caller replaces the message field with the promoted buffer held by the
-  handle.
+- `from_output_buffer()` accepts only an existing memfd-backed buffer. It rejects
+  non-memfd buffers rather than creating a detached promoted buffer: the
+  publisher serializes the buffer stored in the message field, not a buffer
+  held only by the `WriteHandle`.
 - `from_input_buffer()` promotes a non-memfd buffer by allocating a pooled
   memfd buffer and performing a synchronous CPU `memcpy` into it. The returned
   read handle then exposes the memfd-backed copy.

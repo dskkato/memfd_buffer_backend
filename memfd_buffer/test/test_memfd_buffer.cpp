@@ -70,7 +70,7 @@ TEST(MemfdBufferTest, AllocateWriteReadAndCpuCopy)
   EXPECT_EQ(70u, cpu.back());
 }
 
-TEST(MemfdBufferTest, PromotesCpuBuffer)
+TEST(MemfdBufferTest, PromotesCpuInputBuffer)
 {
   rosidl::Buffer<std::uint8_t> cpu(8);
   for (std::size_t i = 0; i < cpu.size(); ++i) {
@@ -82,13 +82,12 @@ TEST(MemfdBufferTest, PromotesCpuBuffer)
   EXPECT_EQ("memfd", read.get_promoted_buffer()->get_backend_type());
   EXPECT_EQ(0xA0, read.get_ptr()[0]);
   EXPECT_EQ(0xA7, read.get_ptr()[7]);
+}
 
-  rosidl::Buffer<std::uint8_t> output(8);
-  auto write = memfd_buffer_backend::from_output_buffer(output);
-  ASSERT_NE(nullptr, write.get_promoted_buffer());
-  ASSERT_NE(nullptr, write.get_ptr());
-  write.get_ptr()[0] = 0x5A;
-  EXPECT_EQ(8u, write.get_promoted_buffer()->size());
+TEST(MemfdBufferTest, RejectsNonMemfdOutputBuffer)
+{
+  rosidl::Buffer<std::uint8_t> cpu(8);
+  EXPECT_THROW(memfd_buffer_backend::from_output_buffer(cpu), memfd_buffer_backend::MemfdError);
 }
 
 TEST(MemfdBufferTest, RejectsConcurrentAndFinalizedWriters)
