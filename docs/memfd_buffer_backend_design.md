@@ -146,6 +146,10 @@ the broker socket.
 | `memfd_socket_path` | Private Unix-domain socket used to receive the memfd via `SCM_RIGHTS`. |
 | `ipc_uid` | Non-zero publication UID used to reject a descriptor for an older reuse generation. |
 
+For pathname-based Unix sockets, `memfd_socket_path` must fit within Linux's
+`sockaddr_un::sun_path` limit, including the terminating null byte. The broker
+must reject or otherwise handle paths that exceed this limit.
+
 The cache key must identify the physical imported block, not an individual
 publication. It therefore includes the publisher process identity, stable
 block ID, and broker socket path, but not `ipc_uid`. The UID remains a
@@ -154,7 +158,6 @@ per-publication validation value.
 The descriptor is created only after the publisher has finalized its write and
 stored the current UID in the control header. The subscriber must validate the
 descriptor against the control header before returning a buffer to user code:
-returning a buffer to user code:
 
 - Descriptor payload size fits within the mapped block size.
 - The control-header magic and ABI version match the expected protocol, and its
@@ -231,6 +234,9 @@ payload begins at the fixed 64-byte offset, so the total mapping size is
 `64 + payload_size` even though the header may not use every byte of that
 range.
 
+`publish_timestamp` is measured with `CLOCK_MONOTONIC`; wall-clock changes must
+not affect grace-period calculations.
+
 The descriptor creation path must complete `WriteHandle` finalization before
 constructing and publishing the descriptor. The handle object may remain alive
 after this point, but the publisher must not modify the payload. The header's
@@ -257,10 +263,11 @@ to the claim bit. Reader acquisition also uses a CAS and fails while the claim
 bit is set. Thus a reader cannot appear between the publisher's zero-reader
 check and the start of reuse.
 
-The 100 ms grace period is the same safety window used by the CUDA backend.
-It protects against a descriptor that has been published but has not yet
-reached a subscriber. The period is not a delivery guarantee: a descriptor
-that arrives after the block has been reused is rejected by UID validation.
+The 100 ms grace period is the same timing heuristic used by the CUDA backend.
+It reduces the chance that a descriptor has been published but has not yet
+reached a subscriber. It is not a safety guarantee or a delivery guarantee: a
+descriptor that arrives after the block has been reused must be rejected by UID
+validation.
 
 The pool's logical reader count is necessary even though memfd itself is
 reference-counted. Kernel references guarantee that the bytes remain mapped;
@@ -284,6 +291,7 @@ fallback.
 
 ```mermaid
 stateDiagram-v2
+  %% ReadHandle activity is tracked separately by the logical reader count.
   [*] --> Writable: allocate or safely reuse block
   Writable --> Writing: acquire WriteHandle
   Writing --> Finalized: descriptor finalization or destroy WriteHandle
@@ -300,10 +308,11 @@ The states have the following meaning:
 - `Writing`: one publisher-side `WriteHandle` owns mutable access. Descriptor
   creation first performs an idempotent finalization if the state is still
   `Writing`.
-- `Reading`: one or more local `ReadHandle` objects own const access. A read
-  handle cannot be acquired while the state is `Writing`, and a new writer
-  cannot be acquired while any local read handle is alive. Multiple read
-  handles are allowed.
+- `ReadHandle` access is tracked separately from the block lifecycle shown in
+  the diagram. One or more local `ReadHandle` objects may own const access
+  while the block is `Published`; a read handle cannot be acquired while the
+  state is `Writing`, and a new writer cannot be acquired while any local read
+  handle is alive. Multiple read handles are allowed.
 - `Finalized`: write finalization has completed and all synchronous CPU writes
   are complete. The C++ `WriteHandle` object may still be alive, and descriptor
   creation is now permitted. The caller must not use the mutable pointer from
