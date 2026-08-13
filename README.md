@@ -15,7 +15,6 @@ implementation.
 - `memfd_buffer`: memfd allocation, pooling, handles, and FD brokering.
 - `memfd_buffer_backend`: rosidl buffer backend plugin.
 - `memfd_buffer_backend_msgs`: descriptor message used for inter-process import.
-- `memfd_buffer_backend_benchmark`: CPU/memfd pub/sub benchmark.
 
 ## Pub/sub benchmark
 

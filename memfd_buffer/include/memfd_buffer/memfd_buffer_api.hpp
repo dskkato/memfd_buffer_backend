@@ -34,7 +34,7 @@ namespace memfd_buffer_backend
 /// The returned buffer owns the allocation. This function does not initialize or
 /// copy payload data. The caller is responsible to assign the buffer to a message
 /// field (e.g. `msg.data = allocate_buffer(n)` for messages that follow the `data`
-//  convention.
+/// convention.
 inline rosidl::Buffer<std::uint8_t> allocate_buffer(std::size_t count)
 {
   return rosidl::Buffer<std::uint8_t>(std::make_unique<MemfdBufferImpl<std::uint8_t>>(count));

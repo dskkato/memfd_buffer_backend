@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <type_traits>
 
 #include "memfd_buffer/memfd_buffer.hpp"
 #include "rosidl_buffer/buffer_impl_base.hpp"
@@ -39,6 +40,7 @@ public:
 template <typename T>
 class MemfdBufferImpl : public rosidl::BufferImplBase<T>
 {
+  static_assert(std::is_trivially_copyable_v<T>, "MemfdBufferImpl requires trivially copyable T");
 public:
   MemfdBufferImpl() = default;
 
