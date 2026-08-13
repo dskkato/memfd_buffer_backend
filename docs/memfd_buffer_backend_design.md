@@ -157,6 +157,8 @@ descriptor against the control header before returning a buffer to user code:
 returning a buffer to user code:
 
 - Descriptor payload size fits within the mapped block size.
+- The control-header magic and ABI version match the expected protocol, and its
+  payload size matches the descriptor.
 - The control-header UID equals `ipc_uid`.
 
 Any mismatch is a stale or invalid publication and must not expose the mapping
@@ -216,10 +218,18 @@ The control header contains the minimum shared state needed for publication
 validation and reuse protection:
 
 ```text
+magic
+abi_version
+payload_size
 ipc_uid
 reader_state (MSB is reuse-claim bit; lower 31 bits are the reader count)
 publish_timestamp
 ```
+
+The control header is cache-line aligned and must fit within 64 bytes.  The
+payload begins at the fixed 64-byte offset, so the total mapping size is
+`64 + payload_size` even though the header may not use every byte of that
+range.
 
 The descriptor creation path must complete `WriteHandle` finalization before
 constructing and publishing the descriptor. The handle object may remain alive

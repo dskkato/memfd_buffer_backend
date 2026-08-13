@@ -140,7 +140,7 @@ private:
     const std::size_t bytes = byte_count(count);
     MemfdBlock * block = pool->allocate(bytes);
     auto deleter = pool->deleter(block);
-    auto * payload = reinterpret_cast<std::uint8_t *>(block->mapping) + sizeof(MemfdControlHeader);
+    auto * payload = reinterpret_cast<std::uint8_t *>(block->mapping) + kMemfdPayloadOffset;
     return MemfdBuffer(
       payload, bytes, std::move(deleter), block->control, nullptr, block->block_id,
       block->mapped_size);

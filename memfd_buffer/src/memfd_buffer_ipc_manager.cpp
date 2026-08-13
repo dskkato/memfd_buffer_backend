@@ -309,7 +309,7 @@ MemfdImportedBlock::~MemfdImportedBlock()
 
 std::uint8_t * MemfdImportedBlock::payload() const
 {
-  return reinterpret_cast<std::uint8_t *>(mapping_) + sizeof(MemfdControlHeader);
+  return reinterpret_cast<std::uint8_t *>(mapping_) + kMemfdPayloadOffset;
 }
 
 void MemfdImportedBlock::acquire_reader()
@@ -422,10 +422,15 @@ void MemfdHandleCache::validate(
 {
   const MemfdControlHeader * control = block.control();
   if (
-    control == nullptr || mapped_size != block.mapped_size() ||
-    mapped_size < sizeof(MemfdControlHeader) ||
-    payload_size > mapped_size - sizeof(MemfdControlHeader)) {
+    control == nullptr || mapped_size != block.mapped_size() || mapped_size < kMemfdPayloadOffset ||
+    payload_size > mapped_size - kMemfdPayloadOffset) {
     throw std::runtime_error("invalid memfd mapping size");
+  }
+  if (control->magic != kMemfdControlMagic || control->abi_version != kMemfdControlAbiVersion) {
+    throw std::runtime_error("memfd control header ABI mismatch");
+  }
+  if (control->payload_size != payload_size) {
+    throw std::runtime_error("memfd control header payload size mismatch");
   }
   if (expected_uid == 0) {
     throw std::runtime_error("memfd descriptor contains a zero publication UID");
@@ -440,7 +445,7 @@ std::shared_ptr<MemfdImportedBlock> MemfdHandleCache::import_block(
   std::uint64_t mapped_size, std::uint64_t payload_size, std::uint64_t expected_uid)
 {
   if (
-    mapped_size < sizeof(MemfdControlHeader) ||
+    mapped_size < kMemfdPayloadOffset ||
     mapped_size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
     throw std::runtime_error("invalid memfd descriptor mapping size");
   }

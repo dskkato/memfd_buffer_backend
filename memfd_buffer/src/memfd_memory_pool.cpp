@@ -187,8 +187,7 @@ MemfdBlock * MemfdMemoryPool::find_block_for_ptr(const void * ptr) const
   const auto address = reinterpret_cast<std::uintptr_t>(ptr);
   std::lock_guard<std::mutex> lock(mutex_);
   for (const auto & block : all_blocks_) {
-    const auto start =
-      reinterpret_cast<std::uintptr_t>(block->mapping) + sizeof(MemfdControlHeader);
+    const auto start = reinterpret_cast<std::uintptr_t>(block->mapping) + kMemfdPayloadOffset;
     const auto end = reinterpret_cast<std::uintptr_t>(block->mapping) + block->mapped_size;
     if (address >= start && address < end) {
       return block.get();
@@ -214,10 +213,10 @@ bool MemfdMemoryPool::try_claim_block(MemfdBlock * block) const
 
 MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
 {
-  if (payload_size > std::numeric_limits<std::size_t>::max() - sizeof(MemfdControlHeader)) {
+  if (payload_size > std::numeric_limits<std::size_t>::max() - kMemfdPayloadOffset) {
     throw std::length_error("memfd buffer mapping size overflows size_t");
   }
-  const std::size_t mapped_size = sizeof(MemfdControlHeader) + payload_size;
+  const std::size_t mapped_size = kMemfdPayloadOffset + payload_size;
   if (mapped_size > static_cast<std::size_t>(std::numeric_limits<off_t>::max())) {
     throw std::length_error("memfd buffer mapping is too large for ftruncate");
   }
@@ -246,6 +245,7 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
   block->payload_size = payload_size;
   block->block_id = next_block_id_++;
   block->control = new (mapping) MemfdControlHeader();
+  block->control->payload_size = payload_size;
   block->control->ipc_uid.store(0, std::memory_order_relaxed);
   block->control->reader_state.store(0, std::memory_order_relaxed);
   block->control->publish_timestamp_us.store(0, std::memory_order_relaxed);

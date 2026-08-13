@@ -142,7 +142,8 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
   }
   if (
     descriptor.memfd_pid <= 0 || descriptor.memfd_socket_path.empty() || descriptor.ipc_uid == 0 ||
-    descriptor.memfd_block_size < descriptor.size) {
+    descriptor.memfd_block_size < kMemfdPayloadOffset ||
+    descriptor.size > descriptor.memfd_block_size - kMemfdPayloadOffset) {
     throw std::runtime_error("invalid memfd descriptor metadata");
   }
 

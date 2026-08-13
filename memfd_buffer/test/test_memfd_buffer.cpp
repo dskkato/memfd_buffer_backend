@@ -47,6 +47,26 @@ TEST(MemfdBufferTest, ReuseClaimSynchronizesReaderAcquisition)
   EXPECT_EQ(0u, control.reader_state.load(std::memory_order_acquire));
 }
 
+TEST(MemfdBufferTest, ControlHeaderDescribesFixedMappingLayout)
+{
+  auto pool = std::make_shared<memfd_buffer_backend::MemfdMemoryPool>();
+  auto * block = pool->allocate(32);
+  ASSERT_NE(nullptr, block);
+  ASSERT_NE(nullptr, block->control);
+
+  EXPECT_EQ(memfd_buffer_backend::kMemfdControlMagic, block->control->magic);
+  EXPECT_EQ(memfd_buffer_backend::kMemfdControlAbiVersion, block->control->abi_version);
+  EXPECT_EQ(32u, block->control->payload_size);
+  EXPECT_EQ(memfd_buffer_backend::kMemfdPayloadOffset + 32u, block->mapped_size);
+  EXPECT_EQ(0u, reinterpret_cast<std::uintptr_t>(block->mapping) % 64u);
+  EXPECT_EQ(
+    0u,
+    (reinterpret_cast<std::uintptr_t>(block->mapping) + memfd_buffer_backend::kMemfdPayloadOffset) %
+      64u);
+
+  pool->free(block);
+}
+
 TEST(MemfdBufferTest, AllocateWriteReadAndCpuCopy)
 {
   auto buffer = memfd_buffer_backend::allocate_buffer(64);

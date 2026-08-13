@@ -30,28 +30,40 @@
 namespace memfd_buffer_backend
 {
 
+inline constexpr std::uint64_t kMemfdControlMagic = 0x4d454d4644425546ULL;  // "MEMFDBUF"
+inline constexpr std::uint32_t kMemfdControlAbiVersion = 2;
+inline constexpr std::size_t kMemfdPayloadOffset = 64;
 inline constexpr std::uint64_t kMemfdGracePeriodUs = 100000;
 inline constexpr std::uint32_t kMemfdReuseClaimed = (std::uint32_t{1} << 31);
 inline constexpr std::uint32_t kMemfdReaderCountMask = ~kMemfdReuseClaimed;
 
-/// Metadata at the beginning of every mapped memfd region.
+/// \brief Metadata at the beginning of every mapped memfd region.
 ///
-/// The atomic members are deliberately lock-free Linux atomics.  The header
-/// is shared between processes and must not contain a process-local mutex.
-struct MemfdControlHeader
+/// \details The payload starts at kMemfdPayloadOffset, leaving a cache-line
+/// boundary between the control metadata and payload.  The non-atomic fields
+/// identify the mapping protocol and fixed payload layout; the atomic fields
+/// coordinate publication and reuse across processes.
+struct alignas(64) MemfdControlHeader
 {
+  std::uint64_t magic{kMemfdControlMagic};
+  std::uint32_t abi_version{kMemfdControlAbiVersion};
+  std::uint64_t payload_size{0};
+  std::atomic<std::uint64_t> ipc_uid{0};
+
   // Bit 31 claims the block for reuse; bits 0-30 count active readers.
   // Reader acquisition and reuse claiming both use CAS.
   // This prevents a reader from appearing after the publisher
   // observes zero readers but before it starts reusing the block.
   std::atomic<std::uint32_t> reader_state{0};
-  std::atomic<std::uint64_t> ipc_uid{0};
   std::atomic<std::uint64_t> publish_timestamp_us{0};
 
   MemfdControlHeader() = default;
   MemfdControlHeader(const MemfdControlHeader &) = delete;
   MemfdControlHeader & operator=(const MemfdControlHeader &) = delete;
 };
+static_assert(
+  sizeof(MemfdControlHeader) <= kMemfdPayloadOffset,
+  "memfd control metadata must fit before the fixed payload offset");
 
 inline bool try_acquire_memfd_reader(MemfdControlHeader * control)
 {
@@ -97,7 +109,12 @@ inline void release_memfd_reuse_claim(MemfdControlHeader * control) noexcept
   }
 }
 
-static_assert(sizeof(MemfdControlHeader) == 24, "memfd control metadata must remain compact");
+static_assert(
+  sizeof(MemfdControlHeader) <= kMemfdPayloadOffset,
+  "memfd control metadata must fit before the fixed payload offset");
+static_assert(
+  kMemfdPayloadOffset % alignof(MemfdControlHeader) == 0,
+  "memfd payload offset must preserve control-header alignment");
 static_assert(
   std::atomic<std::uint64_t>::is_always_lock_free,
   "memfd control metadata requires lock-free uint64 atomics");

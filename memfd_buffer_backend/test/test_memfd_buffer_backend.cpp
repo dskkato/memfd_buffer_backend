@@ -68,6 +68,9 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
     static_cast<const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor.get());
   ASSERT_EQ(128u, typed_descriptor->size);
   ASSERT_NE(0u, typed_descriptor->ipc_uid);
+  EXPECT_EQ(
+    memfd_buffer_backend::kMemfdPayloadOffset + typed_descriptor->size,
+    typed_descriptor->memfd_block_size);
 
   auto imported = backend.from_descriptor_with_endpoint(descriptor.get(), info);
   ASSERT_NE(nullptr, imported.get());
