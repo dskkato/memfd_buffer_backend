@@ -15,7 +15,6 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <rosidl_buffer/buffer_impl_base.hpp>
 #include <stdexcept>
 #include <typeinfo>
 
@@ -26,6 +25,7 @@
 #include "memfd_buffer_backend/memfd_buffer_backend.hpp"
 #include "memfd_buffer_backend_msgs/msg/memfd_buffer_descriptor.hpp"
 #include "pluginlib/class_list_macros.hpp"
+#include "rosidl_buffer/buffer_impl_base.hpp"
 #include "rosidl_typesupport_cpp/message_type_support.hpp"
 
 namespace memfd_buffer_backend
