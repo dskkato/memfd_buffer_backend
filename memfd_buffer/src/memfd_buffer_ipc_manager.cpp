@@ -271,8 +271,9 @@ std::string MemfdFdBroker::register_block(MemfdBlock * block)
     return existing->second.socket_path;
   }
 
-  const std::string path = "/tmp/memfd_buffer_" + std::to_string(getpid()) + "_" +
-                           std::to_string(block->block_id) + ".sock";
+  const std::string path = "/tmp/memfd_buffer_" + std::to_string(geteuid()) + "_" +
+                           std::to_string(getpid()) + "_" + std::to_string(block->block_id) +
+                           ".sock";
   const int server_socket = create_fd_server_socket(path);
   if (server_socket < 0 || !dispatcher_->add_socket(server_socket, block->memfd)) {
     if (server_socket >= 0) {

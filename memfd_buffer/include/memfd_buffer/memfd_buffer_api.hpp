@@ -16,6 +16,7 @@
 #define MEMFD_BUFFER__MEMFD_BUFFER_API_HPP_
 
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <typeinfo>
@@ -105,6 +106,9 @@ ReadHandle from_input_buffer(const rosidl::Buffer<T> & buffer)
     return memfd_impl->get_memfd_buffer().get_read_handle();
   }
 
+  if (buffer.size() > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+    throw MemfdError("input buffer size overflows size_t");
+  }
   const std::size_t bytes = buffer.size() * sizeof(T);
   auto promoted = detail::allocate_memfd_buffer_shared(bytes);
   auto * promoted_impl = detail::memfd_impl_of(*promoted);
