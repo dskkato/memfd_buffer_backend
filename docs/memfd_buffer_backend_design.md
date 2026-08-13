@@ -186,18 +186,26 @@ without a separate orphaned shared-memory cleanup protocol.
 
 ### Rejected: POSIX named shared memory
 
-The payload and its control metadata must not be allocated with
-`shm_open()`/`shm_unlink()` or another globally named POSIX shared-memory
-object. A named object remains in the namespace until an explicit unlink, so a
-design based on named shared memory needs an owner-election or last-owner
-protocol. In ROS 2, the final subscriber is not known to the publisher, and a
-subscriber-side “unlink if I am last” check races with endpoint discovery,
-message delivery, process termination, and fan-out. Crash recovery would then
-need orphan scanning or a separate liveness mechanism.
+POSIX named shared memory is a viable implementation alternative, but this
+backend does not use it. The alternative considered here is name-based
+reopening: the descriptor carries a POSIX shared-memory name and each
+subscriber calls `shm_open()` to obtain the object. This requires the name to
+remain available until all potential subscribers have opened it, so the design
+must manage name collisions, stale names, and the lifetime of that name. The
+publisher must decide when to call `shm_unlink()`; that timing is difficult to
+coordinate with endpoint discovery, message delivery, process termination,
+and fan-out.
 
-This backend deliberately avoids that ownership problem. The Unix socket path
-is only a temporary FD-distribution endpoint; it is not the name of the memory
-object and must not be confused with POSIX named shared memory.
+It is technically possible to call `shm_unlink()` immediately and distribute
+the original FD with `SCM_RIGHTS`, but that is not the intended named-shm
+alternative: the subscriber no longer opens the name, and the broker is still
+required. It adds a named-object creation step without providing a benefit
+over an anonymous memfd, so this design does not consider that hybrid useful.
+
+This backend therefore chooses memfd to avoid shared-memory name collisions
+and `shm_unlink()` timing. The Unix socket path is only a temporary
+FD-distribution endpoint; it is not the name of the memory object and must not
+be confused with POSIX named shared memory.
 
 
 ## Memory pool and block lifetime
