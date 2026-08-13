@@ -54,6 +54,7 @@ TEST(MemfdBufferTest, ControlHeaderDescribesFixedMappingLayout)
   ASSERT_NE(nullptr, block);
   ASSERT_NE(nullptr, block->control);
 
+  EXPECT_EQ(0u, block->control->ipc_uid.load(std::memory_order_acquire));
   EXPECT_EQ(memfd_buffer_backend::kMemfdControlMagic, block->control->magic);
   EXPECT_EQ(memfd_buffer_backend::kMemfdControlAbiVersion, block->control->abi_version);
   EXPECT_EQ(32u, block->control->payload_size);

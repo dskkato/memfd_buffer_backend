@@ -116,7 +116,7 @@ MemfdBlock * MemfdMemoryPool::allocate(std::size_t payload_size)
   if (block->current_uid == 0) {
     block->current_uid = 1;
   }
-  block->control->ipc_uid.store(block->current_uid, std::memory_order_release);
+  block->control->ipc_uid.store(0, std::memory_order_release);
   block->control->publish_timestamp_us.store(0, std::memory_order_release);
   release_memfd_reuse_claim(block->control);
   return block;
@@ -157,7 +157,6 @@ std::uint64_t MemfdMemoryPool::assign_uid(MemfdBlock * block)
     if (block->current_uid == 0) {
       block->current_uid = 1;
     }
-    block->control->ipc_uid.store(block->current_uid, std::memory_order_release);
   }
   return block->current_uid;
 }
@@ -167,6 +166,7 @@ void MemfdMemoryPool::mark_published(MemfdBlock * block)
   if (block == nullptr || block->control == nullptr) {
     return;
   }
+  block->control->ipc_uid.store(block->current_uid, std::memory_order_release);
   block->control->publish_timestamp_us.store(monotonic_time_us(), std::memory_order_release);
 }
 

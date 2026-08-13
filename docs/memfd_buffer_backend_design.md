@@ -76,30 +76,25 @@ sequenceDiagram
   participant Cache as Subscriber import cache
 
   Pub->>Pool: allocate(payload_size)
-  Pool-->>Pub: MemfdBlock and local Buffer lease
-  Pub->>Pub: acquire WriteHandle and write bytes
-  Pub->>Pub: create descriptor finalizes write state
-  Note over Pub: WriteHandle may still be alive and later destruction is idempotent
+  Pool-->>Pub: block and local buffer
+  Pub->>Pub: write payload and finalize
   Pub->>Broker: register block once if needed
+  Pub->>Pub: release-store current ipc_uid after payload writes
   Pub-->>Sub: publish MemfdBufferDescriptor
 
-  Sub->>Cache: lookup(pid, block_id, socket_path)
+  Sub->>Cache: lookup physical block
   alt cache hit
-    Cache-->>Sub: existing fd, mapping, and control header
+    Cache-->>Sub: reuse mapping
   else cache miss
     Sub->>Broker: connect(socket_path)
-    Broker-->>Sub: sendmsg with SCM_RIGHTS(memfd)
-    Sub->>Sub: mmap control header and payload
-    Sub->>Cache: insert imported mapping
+    Broker-->>Sub: transfer memfd with SCM_RIGHTS
+    Sub->>Cache: map and cache block
   end
 
-  Sub->>Sub: validate mapping size and ipc_uid
-  Sub->>Sub: CAS acquire reader reference if reuse is not claimed
-  Sub-->>Sub: deliver memfd-backed Buffer and ReadHandle
-
-  Note over Sub: ReadHandle destruction
-  Sub->>Sub: release logical reader reference
-  Note over Pool: CAS claim reuse only after readers == 0 and grace period elapsed
+  Sub->>Sub: validate publication and acquire reader lease
+  Sub-->>Sub: deliver memfd-backed buffer
+  Sub->>Sub: release reader lease after use
+  Note over Pool: reuse after readers drain and grace period
 ```
 
 The first descriptor for a block causes the subscriber to request and map the
@@ -155,9 +150,10 @@ publication. It therefore includes the publisher process identity, stable
 block ID, and broker socket path, but not `ipc_uid`. The UID remains a
 per-publication validation value.
 
-The descriptor is created only after the publisher has finalized its write and
-stored the current UID in the control header. The subscriber must validate the
-descriptor against the control header before returning a buffer to user code:
+The descriptor is published only after the publisher has finalized its write
+and release-stored the current UID in the control header. The subscriber
+acquire-loads that UID while validating the descriptor before returning a
+buffer to user code:
 
 - Descriptor payload size fits within the mapped block size.
 - The control-header magic and ABI version match the expected protocol, and its
@@ -253,23 +249,21 @@ range.
 not affect grace-period calculations.
 
 The descriptor creation path must complete `WriteHandle` finalization before
-constructing and publishing the descriptor. The handle object may remain alive
-after this point, but the publisher must not modify the payload. The header's
-atomics must be suitable for Linux inter-process use and must not require a
-process-local mutex.
+constructing and publishing the descriptor. After payload writes are complete,
+it release-stores the current `ipc_uid`; the subscriber's acquire load of that
+UID establishes the payload-publication ordering. The handle object may remain
+alive after this point, but the publisher must not modify the payload. The
+header's atomics must be suitable for Linux inter-process use and must not
+require a process-local mutex. `publish_timestamp` is used only by the
+publisher for the reuse grace period, not as the subscriber's payload barrier.
 
 ```mermaid
 flowchart TD
-  A["Free block in size bucket"] --> B{"100 ms since last publish?"}
-  B -->|no| A
-  B -->|yes| C["CAS readers 0 to reuse claim"]
-  C -->|fail| A
-  C -->|success| D["reserve block"]
-  D --> E["assign new ipc_uid"]
-  E --> F["WriteHandle writes payload"]
-  F --> G["finalize and publish descriptor"]
-  G --> H["record publish timestamp"]
-  H --> A
+  A["Available block or new allocation"] --> B["Reserve block for writing"]
+  B --> C["Write payload and finalize"]
+  C --> D["Publish descriptor"]
+  D --> E["Readers drain and grace period elapses"]
+  E --> A
 ```
 
 The most-significant bit of `reader_state` is a reuse-claim flag; the remaining
@@ -338,9 +332,12 @@ The states have the following meaning:
   block can return to `Writable` only after its logical readers are gone and
   the 100 ms grace period has elapsed.
 
-When a block is reserved for reuse, its `ipc_uid` is changed before the next
-write begins so descriptors for the previous publication become stale. The
-state transition is process-local; `ipc_uid`, `reader_state`, and
+When a block is reserved for reuse, its shared `ipc_uid` is first cleared to
+zero before the next write begins, so descriptors for the previous
+publication become stale and the in-progress publication is not visible.
+After the payload write is complete, the publisher stores the new non-zero UID
+with release semantics to publish the completed payload. The state transition
+is process-local; `ipc_uid`, `reader_state`, and
 `publish_timestamp` remain the shared cross-process lifetime metadata.
 
 ## WriteHandle and ReadHandle
