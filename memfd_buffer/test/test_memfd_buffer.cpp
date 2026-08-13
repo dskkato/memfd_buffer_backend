@@ -119,6 +119,59 @@ TEST(MemfdBufferTest, RejectsConcurrentAndFinalizedWriters)
   EXPECT_THROW(memfd_buffer_backend::from_output_buffer(buffer), std::runtime_error);
 }
 
+TEST(MemfdBufferTest, ReadHandleDoesNotImplicitlyFinalizeWriter)
+{
+  auto buffer = memfd_buffer_backend::allocate_buffer(8);
+  auto write = memfd_buffer_backend::from_output_buffer(buffer);
+  const auto & const_buffer = buffer;
+
+  EXPECT_THROW(memfd_buffer_backend::from_input_buffer(const_buffer), std::runtime_error);
+}
+
+TEST(MemfdBufferTest, WriterAndReaderAccessAreMutuallyExclusive)
+{
+  auto buffer = memfd_buffer_backend::allocate_buffer(8);
+  const auto & const_buffer = buffer;
+  auto read = memfd_buffer_backend::from_input_buffer(const_buffer);
+
+  EXPECT_THROW(memfd_buffer_backend::from_output_buffer(buffer), std::runtime_error);
+
+  read = memfd_buffer_backend::ReadHandle();
+  EXPECT_NO_THROW(memfd_buffer_backend::from_output_buffer(buffer));
+}
+
+TEST(MemfdBufferTest, MultipleReadHandlesAreAllowed)
+{
+  auto buffer = memfd_buffer_backend::allocate_buffer(8);
+  const auto & const_buffer = buffer;
+  auto first = memfd_buffer_backend::from_input_buffer(const_buffer);
+  auto second = memfd_buffer_backend::from_input_buffer(const_buffer);
+
+  EXPECT_THROW(memfd_buffer_backend::from_output_buffer(buffer), std::runtime_error);
+
+  first = memfd_buffer_backend::ReadHandle();
+  EXPECT_THROW(memfd_buffer_backend::from_output_buffer(buffer), std::runtime_error);
+
+  second = memfd_buffer_backend::ReadHandle();
+  EXPECT_NO_THROW(memfd_buffer_backend::from_output_buffer(buffer));
+}
+
+TEST(MemfdBufferTest, ExplicitFinalizeAllowsReadWhileWriteHandleLives)
+{
+  auto buffer = memfd_buffer_backend::allocate_buffer(8);
+  auto write = memfd_buffer_backend::from_output_buffer(buffer);
+  write.get_ptr()[0] = 0x5A;
+
+  auto * impl =
+    dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(buffer.get_impl());
+  ASSERT_NE(nullptr, impl);
+  impl->get_memfd_buffer().finalize_write_handle();
+
+  const auto & const_buffer = buffer;
+  auto read = memfd_buffer_backend::from_input_buffer(const_buffer);
+  EXPECT_EQ(0x5A, read.get_ptr()[0]);
+}
+
 TEST(MemfdBufferTest, RejectsWritersForReadOnlyBuffer)
 {
   std::uint8_t payload[8]{};

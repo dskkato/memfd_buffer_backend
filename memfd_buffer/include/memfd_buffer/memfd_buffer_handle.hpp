@@ -15,6 +15,7 @@
 #ifndef MEMFD_BUFFER__MEMFD_BUFFER_HANDLE_HPP_
 #define MEMFD_BUFFER__MEMFD_BUFFER_HANDLE_HPP_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -38,10 +39,15 @@ struct HandleState
 
   std::mutex mutex;
   State state{State::Unset};
+  std::size_t active_readers{0};
 };
 
-/// Scoped const access to a memfd payload.  The handle owns one logical
-/// reader reference until it is destroyed.
+/// Scoped const access to a memfd payload.
+///
+/// The handle owns one local read-access slot and, when the buffer is backed
+/// by an IPC block, one logical inter-process reader reference until it is
+/// destroyed. It does not provide a memory-ordering or asynchronous
+/// completion guarantee.
 class ReadHandle
 {
 public:
@@ -69,18 +75,24 @@ private:
   friend class MemfdBuffer;
 
   ReadHandle(
-    const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner);
+    const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner,
+    std::shared_ptr<HandleState> state);
 
   void release() noexcept;
 
   const std::uint8_t * data_ptr_{nullptr};
+  std::shared_ptr<HandleState> state_;
   std::shared_ptr<void> reader_lease_;
   std::shared_ptr<void> owner_;
   std::shared_ptr<rosidl::Buffer<std::uint8_t>> promoted_buffer_;
 };
 
-/// Scoped mutable access to a memfd payload.  Only one writer can be active
-/// and its destruction finalizes the local write state idempotently.
+/// Scoped mutable access to a memfd payload.
+///
+/// Only one writer can be active, and a writer cannot be acquired while a
+/// local ReadHandle is alive. Destruction finalizes the local write state
+/// idempotently. After explicit finalization through MemfdBuffer, the caller
+/// must not use this handle's mutable pointer again.
 class WriteHandle
 {
 public:

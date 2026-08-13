@@ -108,9 +108,11 @@ ReadHandle from_input_buffer(const rosidl::Buffer<T> & buffer)
   const std::size_t bytes = buffer.size() * sizeof(T);
   auto promoted = detail::allocate_memfd_buffer_shared(bytes);
   auto * promoted_impl = detail::memfd_impl_of(*promoted);
-  auto write = promoted_impl->get_memfd_buffer().get_write_handle();
   const std::vector<T> source = buffer.to_vector();
-  std::memcpy(write.get_ptr(), source.data(), bytes);
+  {
+    auto write = promoted_impl->get_memfd_buffer().get_write_handle();
+    std::memcpy(write.get_ptr(), source.data(), bytes);
+  }
   auto read = promoted_impl->get_memfd_buffer().get_read_handle();
   read.set_promoted_buffer(std::move(promoted));
   return read;

@@ -39,13 +39,18 @@ std::shared_ptr<void> make_lease(MemfdControlHeader * control)
 }  // namespace
 
 ReadHandle::ReadHandle(
-  const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner)
-: data_ptr_(data_ptr), reader_lease_(std::move(reader_lease)), owner_(std::move(owner))
+  const std::uint8_t * data_ptr, std::shared_ptr<void> reader_lease, std::shared_ptr<void> owner,
+  std::shared_ptr<HandleState> state)
+: data_ptr_(data_ptr),
+  state_(std::move(state)),
+  reader_lease_(std::move(reader_lease)),
+  owner_(std::move(owner))
 {
 }
 
 ReadHandle::ReadHandle(ReadHandle && other) noexcept
 : data_ptr_(other.data_ptr_),
+  state_(std::move(other.state_)),
   reader_lease_(std::move(other.reader_lease_)),
   owner_(std::move(other.owner_)),
   promoted_buffer_(std::move(other.promoted_buffer_))
@@ -58,6 +63,7 @@ ReadHandle & ReadHandle::operator=(ReadHandle && other) noexcept
   if (this != &other) {
     release();
     data_ptr_ = other.data_ptr_;
+    state_ = std::move(other.state_);
     reader_lease_ = std::move(other.reader_lease_);
     owner_ = std::move(other.owner_);
     promoted_buffer_ = std::move(other.promoted_buffer_);
@@ -70,9 +76,18 @@ ReadHandle::~ReadHandle() { release(); }
 
 void ReadHandle::release() noexcept
 {
-  promoted_buffer_.reset();
+  auto state = std::move(state_);
+  if (state != nullptr) {
+    {
+      std::lock_guard<std::mutex> lock(state->mutex);
+      if (state->active_readers > 0) {
+        --state->active_readers;
+      }
+    }
+  }
   reader_lease_.reset();
   owner_.reset();
+  promoted_buffer_.reset();
   data_ptr_ = nullptr;
 }
 
@@ -186,13 +201,28 @@ MemfdBuffer & MemfdBuffer::operator=(MemfdBuffer && other) noexcept
 
 ReadHandle MemfdBuffer::get_read_handle() const
 {
-  if (handle_state_ != nullptr) {
-    std::lock_guard<std::mutex> lock(handle_state_->mutex);
-    if (handle_state_->state == HandleState::State::InUse) {
-      handle_state_->state = HandleState::State::Finalized;
-    }
+  if (handle_state_ == nullptr) {
+    handle_state_ = std::make_shared<HandleState>();
   }
-  return ReadHandle(data_ptr_, make_lease(control_), owner_);
+  auto state = handle_state_;
+  {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (state->state == HandleState::State::InUse) {
+      throw std::runtime_error("cannot acquire a read handle while writing");
+    }
+    ++state->active_readers;
+  }
+
+  try {
+    std::shared_ptr<void> reader_lease = make_lease(control_);
+    return ReadHandle(data_ptr_, std::move(reader_lease), owner_, std::move(state));
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (state->active_readers > 0) {
+      --state->active_readers;
+    }
+    throw;
+  }
 }
 
 WriteHandle MemfdBuffer::get_write_handle()
@@ -212,6 +242,9 @@ WriteHandle MemfdBuffer::get_write_handle()
   }
   if (handle_state_->state == HandleState::State::Finalized) {
     throw std::runtime_error("memfd buffer write has already been finalized");
+  }
+  if (handle_state_->active_readers != 0) {
+    throw std::runtime_error("memfd buffer read handle already in use");
   }
   handle_state_->state = HandleState::State::InUse;
   return WriteHandle(data_ptr_, handle_state_, owner_);

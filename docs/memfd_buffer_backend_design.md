@@ -270,12 +270,17 @@ while the memfd reference count handles final object cleanup.
 
 ## Memfd buffer state machine
 
-The write lifecycle is tracked by a process-local state in `MemfdBufferImpl`.
-This state is not stored in the shared memfd control header and is never
-observed by the subscriber. Its purpose is to ensure that the backend cannot
-create a descriptor before the write is finalized. Finalization may happen
-explicitly during descriptor creation while a `WriteHandle` is still alive, or
-from the handle destructor as the normal RAII fallback.
+The write lifecycle and local access exclusion are tracked by process-local
+state in `MemfdBufferImpl`. This state is not stored in the shared memfd
+control header and is never observed by the subscriber. Its purpose is to
+ensure that the backend cannot create a descriptor before the write is
+finalized, and that a local writer and local readers do not access the payload
+at the same time. The shared control header has a separate reader count for
+protecting pool-block reuse across processes; the process-local reader count
+in `HandleState` protects only access through this `MemfdBuffer` instance.
+Finalization may happen explicitly during descriptor creation while a
+`WriteHandle` is still alive, or from the handle destructor as the normal RAII
+fallback.
 
 ```mermaid
 stateDiagram-v2
@@ -295,10 +300,14 @@ The states have the following meaning:
 - `Writing`: one publisher-side `WriteHandle` owns mutable access. Descriptor
   creation first performs an idempotent finalization if the state is still
   `Writing`.
+- `Reading`: one or more local `ReadHandle` objects own const access. A read
+  handle cannot be acquired while the state is `Writing`, and a new writer
+  cannot be acquired while any local read handle is alive. Multiple read
+  handles are allowed.
 - `Finalized`: write finalization has completed and all synchronous CPU writes
   are complete. The C++ `WriteHandle` object may still be alive, and descriptor
-  creation is now permitted. The caller must not modify the payload after
-  publication, even if the handle's mutable pointer remains available.
+  creation is now permitted. The caller must not use the mutable pointer from
+  a `WriteHandle` after finalization, even if that handle object remains alive.
 - `Published`: the descriptor has been created and the payload is immutable
   for this publication. The block can return to `Writable` only after its
   logical readers are gone and the 100 ms grace period has elapsed.
@@ -317,12 +326,12 @@ synchronization replacing CUDA stream synchronization.
 
 `from_output_buffer()` returns a move-only `WriteHandle` with a mutable
 `uint8_t *` pointer. It acquires exclusive write access and rejects a second
-concurrent writer or a write after finalization. Descriptor creation performs
-the write finalization before constructing the descriptor, so the publisher
-does not have to destroy the handle before calling `publish()`. The operation
-is idempotent; destroying a still-live handle later is a no-op after explicit
-finalization. The publisher must not modify the payload after publication,
-even if the handle's mutable pointer remains available.
+concurrent writer, a writer while a local `ReadHandle` is alive, or a write
+after finalization. Descriptor creation performs the write finalization before
+constructing the descriptor, so the publisher does not have to destroy the
+handle before calling `publish()`. The operation is idempotent; destroying a
+still-live handle later is a no-op after explicit finalization. The publisher
+must not use the handle's mutable pointer after finalization or publication.
 
 There is no CUDA stream argument, event allocation, event record, or event
 enqueue. Finalization only changes local state; it is not an asynchronous
@@ -331,9 +340,12 @@ completion mechanism.
 ### ReadHandle
 
 `from_input_buffer()` returns a move-only `ReadHandle` with a const pointer. It
-holds the imported mapping/cache entry and one logical reader reference for
-the duration of the handle. Its destructor releases that reference. It does
-not enqueue a read event, wait for a stream, or use a deferred event recycler.
+holds the imported mapping/cache entry, one process-local read-access slot, and
+one logical inter-process reader reference (when applicable) for the duration
+of the handle. Its destructor releases those references. It does not enqueue a
+read event, wait for a stream, or use a deferred event recycler. Acquiring a
+read handle while a write handle is active is an error; a write handle must be
+destroyed or explicitly finalized first. Multiple read handles may coexist.
 
 The caller must keep the handle alive for the entire period in which the
 returned pointer is accessed. Accessing the pointer after handle destruction

@@ -69,7 +69,7 @@ private:
   MemfdControlHeader * control_{nullptr};
   std::shared_ptr<void> owner_;
   std::shared_ptr<void> held_reader_lease_;
-  std::shared_ptr<HandleState> handle_state_;
+  mutable std::shared_ptr<HandleState> handle_state_;
   std::uint32_t block_id_{0};
   std::uint64_t mapped_size_{0};
   bool writable_{true};
