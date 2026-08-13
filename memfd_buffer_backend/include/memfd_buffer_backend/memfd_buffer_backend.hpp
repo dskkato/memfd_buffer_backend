@@ -39,9 +39,11 @@ public:
   ~MemfdBufferBackend() override = default;
 
   std::string get_backend_type() const override { return "memfd"; }
+
   std::string get_backend_metadata() const override;
 
   const rosidl_message_type_support_t * get_descriptor_type_support() const override;
+
   std::shared_ptr<void> create_empty_descriptor() const override;
 
   std::shared_ptr<void> create_descriptor_with_endpoint(

@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <rosidl_buffer/buffer_impl_base.hpp>
 #include <stdexcept>
 #include <typeinfo>
 
@@ -68,14 +69,15 @@ std::pair<bool, std::vector<std::set<std::uint32_t>>> MemfdBufferBackend::on_dis
   const std::unordered_map<std::string, std::string> & endpoint_supported_backends)
 {
   (void)existing_endpoints;
+
   const auto it = endpoint_supported_backends.find("memfd");
-  const bool compatible =
+  const bool is_compatible =
     it != endpoint_supported_backends.end() && it->second == get_backend_metadata();
   {
     std::lock_guard<std::mutex> lock(compatibility_mutex_);
-    compatibility_cache_[GidKey(endpoint_info.endpoint_gid)] = compatible;
+    compatibility_cache_[GidKey(endpoint_info.endpoint_gid)] = is_compatible;
   }
-  return {compatible, {}};
+  return {is_compatible, {}};
 }
 
 std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
