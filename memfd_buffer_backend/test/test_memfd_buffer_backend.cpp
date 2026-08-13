@@ -78,6 +78,8 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
   auto * imported_impl =
     dynamic_cast<memfd_buffer_backend::MemfdBufferImpl<std::uint8_t> *>(imported_base);
   ASSERT_NE(nullptr, imported_impl);
+  EXPECT_FALSE(imported_impl->get_memfd_buffer().writable());
+  EXPECT_THROW(imported_impl->get_memfd_buffer().get_write_handle(), std::runtime_error);
   auto first_copy = imported_impl->to_cpu();
   auto * first_cpu = dynamic_cast<rosidl::CpuBufferImpl<std::uint8_t> *>(first_copy.get());
   ASSERT_NE(nullptr, first_cpu);

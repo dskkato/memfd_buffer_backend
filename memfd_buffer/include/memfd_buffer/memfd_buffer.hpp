@@ -36,7 +36,7 @@ public:
   MemfdBuffer(
     void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
     MemfdControlHeader * control = nullptr, std::shared_ptr<void> owner = nullptr,
-    std::uint32_t block_id = 0, std::uint64_t mapped_size = 0);
+    std::uint32_t block_id = 0, std::uint64_t mapped_size = 0, bool writable = true);
 
   ~MemfdBuffer();
 
@@ -58,6 +58,7 @@ public:
   MemfdControlHeader * control() const { return control_; }
   std::uint32_t block_id() const { return block_id_; }
   std::uint64_t mapped_size() const { return mapped_size_; }
+  bool writable() const { return writable_; }
 
 private:
   void reset() noexcept;
@@ -71,6 +72,7 @@ private:
   std::shared_ptr<HandleState> handle_state_;
   std::uint32_t block_id_{0};
   std::uint64_t mapped_size_{0};
+  bool writable_{true};
 };
 
 }  // namespace memfd_buffer_backend

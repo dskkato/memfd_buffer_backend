@@ -120,14 +120,15 @@ void WriteHandle::release() noexcept
 MemfdBuffer::MemfdBuffer(
   void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
   MemfdControlHeader * control, std::shared_ptr<void> owner, std::uint32_t block_id,
-  std::uint64_t mapped_size)
+  std::uint64_t mapped_size, bool writable)
 : data_ptr_(static_cast<std::uint8_t *>(payload)),
   size_(size),
   deleter_(std::move(deleter)),
   control_(control),
   owner_(std::move(owner)),
   block_id_(block_id),
-  mapped_size_(mapped_size)
+  mapped_size_(mapped_size),
+  writable_(writable)
 {
   if (data_ptr_ == nullptr && size_ != 0) {
     throw std::invalid_argument("MemfdBuffer payload must not be null");
@@ -148,13 +149,15 @@ MemfdBuffer::MemfdBuffer(MemfdBuffer && other) noexcept
   held_reader_lease_(std::move(other.held_reader_lease_)),
   handle_state_(std::move(other.handle_state_)),
   block_id_(other.block_id_),
-  mapped_size_(other.mapped_size_)
+  mapped_size_(other.mapped_size_),
+  writable_(other.writable_)
 {
   other.data_ptr_ = nullptr;
   other.size_ = 0;
   other.control_ = nullptr;
   other.block_id_ = 0;
   other.mapped_size_ = 0;
+  other.writable_ = true;
 }
 
 MemfdBuffer & MemfdBuffer::operator=(MemfdBuffer && other) noexcept
@@ -170,11 +173,13 @@ MemfdBuffer & MemfdBuffer::operator=(MemfdBuffer && other) noexcept
     handle_state_ = std::move(other.handle_state_);
     block_id_ = other.block_id_;
     mapped_size_ = other.mapped_size_;
+    writable_ = other.writable_;
     other.data_ptr_ = nullptr;
     other.size_ = 0;
     other.control_ = nullptr;
     other.block_id_ = 0;
     other.mapped_size_ = 0;
+    other.writable_ = true;
   }
   return *this;
 }
@@ -192,6 +197,9 @@ ReadHandle MemfdBuffer::get_read_handle() const
 
 WriteHandle MemfdBuffer::get_write_handle()
 {
+  if (!writable_) {
+    throw std::runtime_error("cannot acquire a write handle for a read-only memfd buffer");
+  }
   if (data_ptr_ == nullptr || size_ == 0) {
     throw std::runtime_error("cannot acquire a write handle for an empty memfd buffer");
   }
@@ -245,6 +253,7 @@ void MemfdBuffer::reset() noexcept
   control_ = nullptr;
   block_id_ = 0;
   mapped_size_ = 0;
+  writable_ = true;
   deleter_ = {};
 }
 

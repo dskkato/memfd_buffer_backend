@@ -119,6 +119,16 @@ TEST(MemfdBufferTest, RejectsConcurrentAndFinalizedWriters)
   EXPECT_THROW(memfd_buffer_backend::from_output_buffer(buffer), std::runtime_error);
 }
 
+TEST(MemfdBufferTest, RejectsWritersForReadOnlyBuffer)
+{
+  std::uint8_t payload[8]{};
+  memfd_buffer_backend::MemfdBuffer buffer(
+    payload, sizeof(payload), [](std::uint8_t *) {}, nullptr, nullptr, 0, 0, false);
+
+  EXPECT_FALSE(buffer.writable());
+  EXPECT_THROW(buffer.get_write_handle(), std::runtime_error);
+}
+
 TEST(MemfdBufferTest, PoolUsesSizeBucketsAndReaderProtection)
 {
   auto pool = std::make_shared<memfd_buffer_backend::MemfdMemoryPool>();

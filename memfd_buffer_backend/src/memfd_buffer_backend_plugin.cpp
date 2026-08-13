@@ -159,7 +159,7 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
   auto reader_release = [imported](std::uint8_t *) { imported->release_reader(); };
   MemfdBuffer buffer(
     imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
-    descriptor.memfd_block_id, descriptor.memfd_block_size);
+    descriptor.memfd_block_id, descriptor.memfd_block_size, false);
   auto result = std::make_unique<MemfdBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
   return {result.release(), [](void * ptr) {
