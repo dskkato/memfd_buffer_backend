@@ -177,6 +177,13 @@ subscribers using `SCM_RIGHTS`; receiving a descriptor creates another kernel
 reference to the same anonymous file object. Each imported mapping and FD is
 owned by an RAII object in the subscriber process.
 
+Payload immutability is an API-level contract for cooperative participants,
+not an OS-level protection boundary. The control header and payload occupy the
+same shared mapping, so this design does not make only the payload read-only at
+the page-permission level. A participant with a writable mapping could still
+modify the payload or control header; the backend relies on its access API and
+lifecycle rules to prevent such writes during `Published`.
+
 The publisher does not need to know which subscriber is the last owner. If the
 publisher exits, its FD and broker-owned references are closed, but a
 subscriber that still has a received FD or mapping can continue to use the
@@ -326,8 +333,10 @@ The states have the following meaning:
   creation is now permitted. The caller must not use the mutable pointer from
   a `WriteHandle` after finalization, even if that handle object remains alive.
 - `Published`: the descriptor has been created and the payload is immutable
-  for this publication. The block can return to `Writable` only after its
-  logical readers are gone and the 100 ms grace period has elapsed.
+  for this publication by API contract. This immutability is cooperative, not
+  OS-enforced, because the control header and payload share one mapping. The
+  block can return to `Writable` only after its logical readers are gone and
+  the 100 ms grace period has elapsed.
 
 When a block is reserved for reuse, its `ipc_uid` is changed before the next
 write begins so descriptors for the previous publication become stale. The
