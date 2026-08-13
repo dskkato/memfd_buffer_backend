@@ -76,30 +76,25 @@ sequenceDiagram
   participant Cache as Subscriber import cache
 
   Pub->>Pool: allocate(payload_size)
-  Pool-->>Pub: MemfdBlock and local Buffer lease
-  Pub->>Pub: acquire WriteHandle and write bytes
-  Pub->>Pub: create descriptor finalizes write state
-  Note over Pub: WriteHandle may still be alive and later destruction is idempotent
+  Pool-->>Pub: block and local buffer
+  Pub->>Pub: write payload and finalize
   Pub->>Broker: register block once if needed
+  Pub->>Pub: release-store current ipc_uid after payload writes
   Pub-->>Sub: publish MemfdBufferDescriptor
 
-  Sub->>Cache: lookup(pid, block_id, socket_path)
+  Sub->>Cache: lookup physical block
   alt cache hit
-    Cache-->>Sub: existing fd, mapping, and control header
+    Cache-->>Sub: reuse mapping
   else cache miss
     Sub->>Broker: connect(socket_path)
-    Broker-->>Sub: sendmsg with SCM_RIGHTS(memfd)
-    Sub->>Sub: mmap control header and payload
-    Sub->>Cache: insert imported mapping
+    Broker-->>Sub: transfer memfd with SCM_RIGHTS
+    Sub->>Cache: map and cache block
   end
 
-  Sub->>Sub: validate magic, size, block ID, and ipc_uid
-  Sub->>Sub: acquire logical reader reference
-  Sub-->>Sub: deliver memfd-backed Buffer and ReadHandle
-
-  Note over Sub: ReadHandle destruction
-  Sub->>Sub: release logical reader reference
-  Note over Pool: reuse only after readers == 0 and grace period elapsed
+  Sub->>Sub: validate publication and acquire reader lease
+  Sub-->>Sub: deliver memfd-backed buffer
+  Sub->>Sub: release reader lease after use
+  Note over Pool: reuse after readers drain and grace period
 ```
 
 The first descriptor for a block causes the subscriber to request and map the
@@ -151,13 +146,14 @@ publication. It therefore includes the publisher process identity, stable
 block ID, and broker socket path, but not `ipc_uid`. The UID remains a
 per-publication validation value.
 
-The descriptor is created only after the publisher has finalized its write and
-stored the current UID in the control header. The subscriber must validate the
-descriptor against the control header before returning a buffer to user code:
-returning a buffer to user code:
+The descriptor is published only after the publisher has finalized its write
+and release-stored the current UID in the control header. The subscriber
+acquire-loads that UID while validating the descriptor before returning a
+buffer to user code:
 
-- ABI magic and control-header version match.
-- Block ID and payload size match the descriptor.
+- Descriptor payload size fits within the mapped block size.
+- The control-header magic and ABI version match the expected protocol, and its
+  payload size matches the descriptor.
 - The control-header UID equals `ipc_uid`.
 
 Any mismatch is a stale or invalid publication and must not expose the mapping
@@ -173,6 +169,13 @@ subscribers using `SCM_RIGHTS`; receiving a descriptor creates another kernel
 reference to the same anonymous file object. Each imported mapping and FD is
 owned by an RAII object in the subscriber process.
 
+Payload immutability is an API-level contract for cooperative participants,
+not an OS-level protection boundary. The control header and payload occupy the
+same shared mapping, so this design does not make only the payload read-only at
+the page-permission level. A participant with a writable mapping could still
+modify the payload or control header; the backend relies on its access API and
+lifecycle rules to prevent such writes during `Published`.
+
 The publisher does not need to know which subscriber is the last owner. If the
 publisher exits, its FD and broker-owned references are closed, but a
 subscriber that still has a received FD or mapping can continue to use the
@@ -182,18 +185,26 @@ without a separate orphaned shared-memory cleanup protocol.
 
 ### Rejected: POSIX named shared memory
 
-The payload and its control metadata must not be allocated with
-`shm_open()`/`shm_unlink()` or another globally named POSIX shared-memory
-object. A named object remains in the namespace until an explicit unlink, so a
-design based on named shared memory needs an owner-election or last-owner
-protocol. In ROS 2, the final subscriber is not known to the publisher, and a
-subscriber-side “unlink if I am last” check races with endpoint discovery,
-message delivery, process termination, and fan-out. Crash recovery would then
-need orphan scanning or a separate liveness mechanism.
+POSIX named shared memory is a viable implementation alternative, but this
+backend does not use it. The alternative considered here is name-based
+reopening: the descriptor carries a POSIX shared-memory name and each
+subscriber calls `shm_open()` to obtain the object. This requires the name to
+remain available until all potential subscribers have opened it, so the design
+must manage name collisions, stale names, and the lifetime of that name. The
+publisher must decide when to call `shm_unlink()`; that timing is difficult to
+coordinate with endpoint discovery, message delivery, process termination,
+and fan-out.
 
-This backend deliberately avoids that ownership problem. The Unix socket path
-is only a temporary FD-distribution endpoint; it is not the name of the memory
-object and must not be confused with POSIX named shared memory.
+It is technically possible to call `shm_unlink()` immediately and distribute
+the original FD with `SCM_RIGHTS`, but that is not the intended named-shm
+alternative: the subscriber no longer opens the name, and the broker is still
+required. It adds a named-object creation step without providing a benefit
+over an anonymous memfd, so this design does not consider that hybrid useful.
+
+This backend therefore chooses memfd to avoid shared-memory name collisions
+and `shm_unlink()` timing. The Unix socket path is only a temporary
+FD-distribution endpoint; it is not the name of the memory object and must not
+be confused with POSIX named shared memory.
 
 
 ## Memory pool and block lifetime
@@ -217,55 +228,75 @@ The control header contains the minimum shared state needed for publication
 validation and reuse protection:
 
 ```text
-magic / ABI version
-block_id / payload_size
+magic
+abi_version
+payload_size
 ipc_uid
-active_reader_count
+reader_state (MSB is reuse-claim bit; lower 31 bits are the reader count)
 publish_timestamp
 ```
 
+The control header is cache-line aligned and must fit within 64 bytes.  The
+payload begins at the fixed 64-byte offset, so the total mapping size is
+`64 + payload_size` even though the header may not use every byte of that
+range.
+
+`publish_timestamp` is measured with `CLOCK_MONOTONIC`; wall-clock changes must
+not affect grace-period calculations.
+
 The descriptor creation path must complete `WriteHandle` finalization before
-constructing and publishing the descriptor. The handle object may remain alive
-after this point, but the publisher must not modify the payload. The header's
-atomics must be suitable for Linux inter-process use and must not require a
-process-local mutex.
+constructing and publishing the descriptor. After payload writes are complete,
+it release-stores the current `ipc_uid`; the subscriber's acquire load of that
+UID establishes the payload-publication ordering. The handle object may remain
+alive after this point, but the publisher must not modify the payload. The
+header's atomics must be suitable for Linux inter-process use and must not
+require a process-local mutex. `publish_timestamp` is used only by the
+publisher for the reuse grace period, not as the subscriber's payload barrier.
 
 ```mermaid
 flowchart TD
-  A["Free block in size bucket"] --> B{"active readers == 0?"}
-  B -->|no| A
-  B -->|yes| C{"100 ms since last publish?"}
-  C -->|no| A
-  C -->|yes| D["reserve block"]
-  D --> E["assign new ipc_uid"]
-  E --> F["WriteHandle writes payload"]
-  F --> G["finalize and publish descriptor"]
-  G --> H["record publish timestamp"]
-  H --> A
+  A["Available block or new allocation"] --> B["Reserve block for writing"]
+  B --> C["Write payload and finalize"]
+  C --> D["Publish descriptor"]
+  D --> E["Readers drain and grace period elapses"]
+  E --> A
 ```
 
-The 100 ms grace period is the same safety window used by the CUDA backend.
-It protects against a descriptor that has been published but has not yet
-reached a subscriber. The period is not a delivery guarantee: a descriptor
-that arrives after the block has been reused is rejected by UID validation.
+The most-significant bit of `reader_state` is a reuse-claim flag; the remaining
+31 bits count active readers. The publisher claims reuse with a CAS from zero
+to the claim bit. Reader acquisition also uses a CAS and fails while the claim
+bit is set. Thus a reader cannot appear between the publisher's zero-reader
+check and the start of reuse.
+
+The 100 ms grace period is the same timing heuristic used by the CUDA backend.
+It reduces the chance that a descriptor has been published but has not yet
+reached a subscriber. It is not a safety guarantee or a delivery guarantee: a
+descriptor that arrives after the block has been reused must be rejected by UID
+validation.
 
 The pool's logical reader count is necessary even though memfd itself is
 reference-counted. Kernel references guarantee that the bytes remain mapped;
 they do not tell the publisher whether a subscriber is still reading before
-the next publication. The count therefore protects against concurrent reuse,
+the next publication. The count and reuse claim therefore protect against concurrent reuse,
 while the memfd reference count handles final object cleanup.
 
 ## Memfd buffer state machine
 
-The write lifecycle is tracked by a process-local state in `MemfdBufferImpl`.
-This state is not stored in the shared memfd control header and is never
-observed by the subscriber. Its purpose is to ensure that the backend cannot
-create a descriptor before the write is finalized. Finalization may happen
-explicitly during descriptor creation while a `WriteHandle` is still alive, or
-from the handle destructor as the normal RAII fallback.
+The write lifecycle and local access exclusion are tracked by process-local
+state in `MemfdBufferImpl`. This state is not stored in the shared memfd
+control header and is never observed by the subscriber. Its purpose is to
+ensure that the backend cannot create a descriptor before the write is
+finalized, and that a local writer and local readers do not access the payload
+at the same time. The shared control header has a separate reader count for
+protecting pool-block reuse across processes; the process-local reader count
+in `HandleState` protects only access through this `MemfdBuffer` instance.
+Finalization may happen explicitly during descriptor creation while a
+`WriteHandle` is still alive, or from the handle destructor as the normal RAII
+fallback.
 
 ```mermaid
 stateDiagram-v2
+  %% ReadHandle activity is tracked separately by the logical reader count.
   [*] --> Writable: allocate or safely reuse block
   Writable --> Writing: acquire WriteHandle
   Writing --> Finalized: descriptor finalization or destroy WriteHandle
@@ -282,17 +313,27 @@ The states have the following meaning:
 - `Writing`: one publisher-side `WriteHandle` owns mutable access. Descriptor
   creation first performs an idempotent finalization if the state is still
   `Writing`.
+- `ReadHandle` access is tracked separately from the block lifecycle shown in
+  the diagram. One or more local `ReadHandle` objects may own const access
+  while the block is `Published`; a read handle cannot be acquired while the
+  state is `Writing`, and a new writer cannot be acquired while any local read
+  handle is alive. Multiple read handles are allowed.
 - `Finalized`: write finalization has completed and all synchronous CPU writes
   are complete. The C++ `WriteHandle` object may still be alive, and descriptor
-  creation is now permitted. The caller must not modify the payload after
-  publication, even if the handle's mutable pointer remains available.
+  creation is now permitted. The caller must not use the mutable pointer from
+  a `WriteHandle` after finalization, even if that handle object remains alive.
 - `Published`: the descriptor has been created and the payload is immutable
-  for this publication. The block can return to `Writable` only after its
-  logical readers are gone and the 100 ms grace period has elapsed.
+  for this publication by API contract. This immutability is cooperative, not
+  OS-enforced, because the control header and payload share one mapping. The
+  block can return to `Writable` only after its logical readers are gone and
+  the 100 ms grace period has elapsed.
 
-When a block is reserved for reuse, its `ipc_uid` is changed before the next
-write begins so descriptors for the previous publication become stale. The
-state transition is process-local; `ipc_uid`, `active_reader_count`, and
+When a block is reserved for reuse, its shared `ipc_uid` is first cleared to
+zero before the next write begins, so descriptors for the previous
+publication become stale and the in-progress publication is not visible.
+After the payload write is complete, the publisher stores the new non-zero UID
+with release semantics to publish the completed payload. The state transition
+is process-local; `ipc_uid`, `reader_state`, and
 `publish_timestamp` remain the shared cross-process lifetime metadata.
 
 ## WriteHandle and ReadHandle
@@ -304,23 +345,21 @@ synchronization replacing CUDA stream synchronization.
 
 `from_output_buffer()` returns a move-only `WriteHandle` with a mutable
 `uint8_t *` pointer. It acquires exclusive write access and rejects a second
-concurrent writer or a write after finalization. Descriptor creation performs
-the write finalization before constructing the descriptor, so the publisher
-does not have to destroy the handle before calling `publish()`. The operation
-is idempotent; destroying a still-live handle later is a no-op after explicit
-finalization. The publisher must not modify the payload after publication,
-even if the handle's mutable pointer remains available.
-
-There is no CUDA stream argument, event allocation, event record, or event
-enqueue. Finalization only changes local state; it is not an asynchronous
-completion mechanism.
+concurrent writer, a writer while a local `ReadHandle` is alive, or a write
+after finalization. Descriptor creation performs the write finalization before
+constructing the descriptor, so the publisher does not have to destroy the
+handle before calling `publish()`. The operation is idempotent; destroying a
+still-live handle later is a no-op after explicit finalization. The publisher
+must not use the handle's mutable pointer after finalization or publication.
 
 ### ReadHandle
 
 `from_input_buffer()` returns a move-only `ReadHandle` with a const pointer. It
-holds the imported mapping/cache entry and one logical reader reference for
-the duration of the handle. Its destructor releases that reference. It does
-not enqueue a read event, wait for a stream, or use a deferred event recycler.
+holds the imported mapping/cache entry, one process-local read-access slot, and
+one logical inter-process reader reference (when applicable) for the duration
+of the handle. Its destructor releases those references. Acquiring a read handle
+while a write handle is active is an error; a write handle must be destroyed or
+explicitly finalized first. Multiple read handles may coexist.
 
 The caller must keep the handle alive for the entire period in which the
 returned pointer is accessed. Accessing the pointer after handle destruction
@@ -328,15 +367,18 @@ or concurrently modifying it is outside the backend contract.
 
 ### Promotion and CPU buffers
 
-The API accepts generic `rosidl::Buffer<T>` values just as the CUDA API does:
+The API accepts generic `rosidl::Buffer<T>` values as the CUDA backend API does:
 
-- `from_output_buffer()` promotes a non-memfd buffer to a fresh pooled memfd
-  buffer without copying, because the caller is about to overwrite it. The
-  caller replaces the message field with the promoted buffer held by the
-  handle.
+- `from_output_buffer()` accepts only an existing memfd-backed buffer. It rejects
+  non-memfd buffers rather than creating a detached promoted buffer: the
+  publisher serializes the buffer stored in the message field, not a buffer
+  held only by the `WriteHandle`.
+  - See also https://github.com/ros2/rosidl_buffer_backends/issues/8
 - `from_input_buffer()` promotes a non-memfd buffer by allocating a pooled
   memfd buffer and performing a synchronous CPU `memcpy` into it. The returned
   read handle then exposes the memfd-backed copy.
+  - Currently, promotion from other backends may require extra copy steps, such as
+    CUDA -> CPU -> memfd, even though a direct CUDA-to-memfd copy may be possible.
 
 The promotion path is an adaptation path, not the zero-copy inter-process
 transport path.
@@ -366,75 +408,3 @@ may retain a mapping after the publisher reuses the block; the UID check keeps
 old descriptors from being interpreted as the new publication. The publisher
 must keep a stable block/socket identity for the lifetime of a cached mapping
 and must not silently replace the memfd behind an existing cache key.
-
-## Backend plugin behavior
-
-`MemfdBufferBackend` implements the standard `rosidl::BufferBackend` hooks:
-
-1. `get_backend_type()` returns `memfd`.
-2. `get_backend_metadata()` returns the host and effective-user identity used
-   by endpoint discovery.
-3. `on_discovering_endpoint()` selects memfd only for compatible endpoints.
-4. `create_descriptor_with_endpoint()` finalizes the source buffer's write
-   state, registers its block with the broker, and creates a descriptor
-   containing the block identity and current UID.
-5. `from_descriptor_with_endpoint()` obtains or reuses the imported mapping,
-   validates the control header, acquires a reader reference, and returns a
-   memfd-backed `BufferImpl` with an RAII deleter.
-
-If any optimized-path precondition fails, the hook returns a CPU-backed
-implementation or declines the memfd descriptor so the normal RMW fallback
-can serialize the payload. Import errors must not expose partially mapped or
-unvalidated memory.
-
-## Failure and shutdown behavior
-
-- `memfd_create`, `ftruncate`, `mmap`, broker setup, or FD transfer failure
-  selects CPU fallback or reports allocation failure to the caller.
-- A malformed descriptor, ABI mismatch, size mismatch, invalid block ID, or
-  UID mismatch is rejected as stale data.
-- The publisher stops accepting new broker requests before destroying a pool
-  block and removes the socket path as a best-effort filesystem cleanup.
-- Closing the publisher FD does not force-delete a payload still referenced by
-  a subscriber. The kernel reclaims the memfd only after all FD and mapping
-  references are gone.
-- Pool destruction must not overwrite or unmap a block while an active local
-  buffer or logical reader reference still owns it. If a safe shutdown cannot
-  be established, the block is quarantined until process exit rather than
-  being reused unsafely.
-
-## Related implementation areas
-
-The design is derived from these repository-local sources:
-
-- `src/rosidl_buffer_backends/docs/cuda_buffer_backend_design.md` for the
-  document structure and lifecycle diagrams.
-- `src/rosidl_buffer_backends/cuda_buffer_backend/cuda_buffer/` for the
-  size-aware memory pool, persistent FD dispatcher, import cache, UID/stale
-  validation, and `WriteHandle` / `ReadHandle` API shape.
-- `src/rosidl_memfd_buffer_backend/memfd_buffer/` and
-  `src/rosidl_memfd_buffer_backend/memfd_buffer_backend/` for the previous
-  memfd mapping, control-header, broker, descriptor, and plugin PoC.
-- `src/memfd_buffer_backend/memfd_buffer_backend_msgs/msg/MemfdBufferDescriptor.msg`
-  for the current descriptor field names in the new backend workspace.
-
-The previous PoC is implementation evidence, not the final ownership
-contract.
-
-## Validation plan
-
-The implementation should provide coverage for the following scenarios:
-
-- allocation and reuse of same-size pool blocks, with separate buckets for
-  different payload sizes;
-- refusal to reuse a block while a `ReadHandle` is active or while the 100 ms
-  grace period has not elapsed;
-- successful multi-subscriber FD distribution and cache-hit mapping reuse;
-- payload-size, block-ID, ABI, and UID validation failures;
-- stale descriptor rejection after block reuse;
-- write finalization followed by visible subscriber reads without CUDA event
-  operations;
-- same-host/same-user capability selection and CPU fallback for incompatible
-  endpoints; and
-- cleanup after publisher or subscriber process termination without a named
-  shared-memory orphan cleanup protocol.

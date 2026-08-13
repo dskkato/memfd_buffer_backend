@@ -35,7 +35,12 @@ target_link_libraries(${PROJECT_NAME}
 pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_clang_tidy REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  # The default uncrustify configuration conflicts with the C++ constructs
+  # used by this package.  Keep clang-tidy as the C++ lint test instead.
+  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
@@ -44,6 +49,20 @@ if(BUILD_TESTING)
   find_package(sensor_msgs REQUIRED)
   find_package(std_msgs REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
+
+  ament_add_gtest(test_memfd_buffer_backend
+    test/test_memfd_buffer_backend.cpp
+  )
+  if(TARGET test_memfd_buffer_backend)
+    target_link_libraries(test_memfd_buffer_backend
+      ${PROJECT_NAME}
+      memfd_buffer::memfd_buffer
+      ${memfd_buffer_backend_msgs_TARGETS}
+      rosidl_buffer_backend::rosidl_buffer_backend
+      rosidl_runtime_cpp::rosidl_runtime_cpp
+      rosidl_typesupport_cpp::rosidl_typesupport_cpp
+    )
+  endif()
 
 endif()
 
