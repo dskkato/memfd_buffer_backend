@@ -57,12 +57,12 @@ ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include/${PROJECT_NAME})
 
 if(BUILD_TESTING)
-  find_package(ament_cmake_clang_format REQUIRED)
+  find_package(ament_cmake_clang_tidy REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
-  # The current source formatting follows clang-format.  The default
-  # uncrustify configuration has conflicting rules for several C++ constructs
-  # (for example, inline function bodies and template declarations).
+  # The default uncrustify configuration has conflicting rules for several
+  # C++ constructs (for example, inline function bodies and template
+  # declarations), so use clang-tidy as the C++ lint test instead.
   set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   ament_lint_auto_find_test_dependencies()
 
