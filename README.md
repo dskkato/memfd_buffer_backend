@@ -48,3 +48,20 @@ ros2 run memfd_buffer_backend_benchmark run_e2e_benchmark.py \
 
 Use `--sizes`, `--count`, and `--rate-hz` to override the sweep.  `--count`
 must be greater than the fixed 10-sample warm-up.
+
+To rebuild each RMW variant from `origin/lyrical` and run the complete
+16-way matrix (720 cases by default), use:
+
+```bash
+source ~/ros2_lyrical/install/setup.bash
+source install/setup.bash
+ros2 run memfd_buffer_backend_benchmark run_16way_benchmark.py \
+  --output-dir benchmark-results-16way-rerun \
+  --overwrite
+```
+
+The orchestration script applies the three patches independently, builds each
+variant in a separate Release prefix, runs the existing end-to-end runner for
+all payload sizes and communication/backend combinations, and restores the
+original `rmw_fastrtps` branch and revision on exit.  Use `--dry-run` to print
+the case count and variants without changing the source checkout.

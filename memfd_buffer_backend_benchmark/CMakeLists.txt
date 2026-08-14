@@ -29,7 +29,9 @@ install(
 )
 
 install(
-  PROGRAMS scripts/run_e2e_benchmark.py
+  PROGRAMS
+    scripts/run_e2e_benchmark.py
+    scripts/run_16way_benchmark.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
