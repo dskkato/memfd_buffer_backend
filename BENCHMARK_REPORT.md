@@ -1,281 +1,180 @@
-# SHM Buffer Backend and `rmw_fastrtps_cpp` Patch Benchmark
+# 16-Way SHM Buffer Backend Benchmark Report
 
 ## Executive summary
 
-This report evaluates four independently built variants across all four requested
-communication paths:
+This rerun evaluates the four requested communication/backend paths at a 10 Hz
+publication rate, using the current `rmw_fastrtps` `lyrical` commit
+`1aaf7d38dbf4ca34ae208b4aa63d1290deb8c17b` (`1aaf7d3`). The three patches were
+applied independently to that baseline.
 
-| Variant | `rmw_fastrtps_cpp` implementation |
-|---|---|
-| baseline | Unmodified `origin/lyrical` (`636a108`) |
-| unique_ptr | Patch `0001-fastrtps-reuse-unique-ptr-buffer.patch` |
-| lazy | Patch `0002-fastrtps-reuse-fastbuffer-lazy.patch` |
-| reserve | Patch `0003-fastrtps-reuse-fastbuffer-reserve.patch` |
+The rerun confirms the previous conclusion:
 
-The three patches were applied independently to the same baseline; they are
-alternative implementations, not cumulative changes.
-
-The main conclusions are:
-
-- Intra-process communication is the fastest path, at approximately 60–75 µs
-  p50 in the baseline run. CPU-backed and SHM-backed intra-process results are
-  close; SHM adds a small overhead in some sizes, but the overhead is often
-  within end-to-end measurement variability.
-- For inter-process communication, the CPU fallback becomes strongly
-  payload-size dependent at 1 MiB and above. The baseline p50 reaches 12.5 ms
-  at 1 MiB and 15.7 ms at 16 MiB.
-- Baseline inter-process SHM is much faster than the CPU fallback for large
-  payloads, but it still grows from 0.88 ms at 1 MiB to 2.52 ms at 16 MiB.
-  Every RMW patch removes most of this large-payload growth; the patched SHM
-  p50 at 16 MiB is 0.50–0.60 ms.
-- The strongest and most consistent patch effect is on the inter-process SHM
-  path. The geometric-mean p50 relative to baseline is 0.75x for `unique_ptr`,
-  0.70x for `lazy`, and 0.75x for `reserve`.
-- No communication-path regression can be attributed to the patches in this
-  benchmark. The patched function is used by the non-CPU inter-process path;
-  CPU inter-process and intra-process results are control paths and show normal
-  run-to-run variation.
+- Intra-process communication is the fastest path, with typical p50 latency in
+  the tens of microseconds. The `memfd` backend adds a small end-to-end cost in
+  many cases.
+- For inter-process communication, the CPU fallback becomes much slower for
+  multi-megabyte payloads. The baseline reaches 16.0 ms at 4 MiB and 14.8 ms
+  at 16 MiB in this rerun.
+- Inter-process `memfd` is substantially faster for large buffers, but baseline
+  latency still grows from 1.19 ms at 1 MiB to 2.28 ms at 16 MiB.
+- All three `rmw_fastrtps_cpp` alternatives remove most of that large-buffer
+  growth. Their 16 MiB inter-process `memfd` p50 is 0.71–0.74 ms.
+- The regression-control paths do not show a consistent degradation. The
+  strongest effect remains localized to inter-process publication through the
+  non-CPU backend.
 
 ## Measurement design
 
-### Matrix
+The matrix contains:
 
-Each variant was measured using the existing end-to-end benchmark with:
-
+- 4 variants: baseline, `unique_ptr`, `lazy`, and `reserve`.
 - 9 payload sizes: 64 B, 1 KiB, 4 KiB, 16 KiB, 64 KiB, 256 KiB, 1 MiB,
   4 MiB, and 16 MiB.
-- 10 Hz publication rate.
-- 30 messages per case, with the first 10 callbacks excluded as warm-up and
-  20 samples used for the reported percentiles.
-- 5 repeats per payload/path combination.
-- Reliable `KeepLast(10)` QoS and `rmw_fastrtps_cpp`.
-- Publisher CPU affinity 8, subscriber CPU affinity 9, and intra-process
-  affinity 8.
+- 5 repeats per size/path combination.
+- 30 messages per case at 10 Hz; 10 warm-up messages are excluded, leaving
+  20 measured samples.
+- 2 communication modes: `inter_process` and `intra_process_va`.
+- 2 backends: `cpu` and `memfd` (called SHM in the discussion below).
 
-The complete matrix is:
+Thus, the complete run contains:
 
 ```text
-4 variants × 9 sizes × 5 repeats ×
-  (inter-process CPU, inter-process SHM,
-   intra-process CPU, intra-process SHM)
+4 variants × 9 sizes × 5 repeats × 2 communication modes × 2 backends
 = 720 cases
 ```
 
-The benchmark timestamp is assigned immediately before `publish()`. The
-subscriber records the end timestamp immediately after obtaining the selected
-buffer view and loading its first byte. Allocation and payload initialization
-are outside the benchmark timestamp interval. Intra-process cases additionally
-verify that publisher and subscriber data addresses match for all 30 messages.
+The baseline is unmodified `origin/lyrical` at `1aaf7d3`. Each patch is an
+alternative built independently from that baseline, not a cumulative patch
+stack:
 
-For each case, the CSV stores p50, p95, and p99. Tables in this report show the
-median of each repeat's p50 or p95; the range of repeat p50 values is used when
-discussing variability. All displayed latency values are microseconds unless
-otherwise stated.
+| Variant | Change |
+|---|---|
+| baseline | Unmodified `origin/lyrical` |
+| `unique_ptr` | `0001-fastrtps-reuse-unique-ptr-buffer.patch` |
+| `lazy` | `0002-fastrtps-reuse-fastbuffer-lazy.patch` |
+| `reserve` | `0003-fastrtps-reuse-fastbuffer-reserve.patch` |
 
-### Variant construction
+The values in the tables are the median across the five repeats of each
+repeat's percentile. Each cell is `p50 / p95` in microseconds.
 
-The baseline was checked out at `origin/lyrical` commit `636a108`. Each patch
-was then applied to that clean baseline and built in a separate Release
-build/install prefix. After the measurements, the source checkout was restored
-to the pre-existing local `lyrical` branch at `1aaf7d3`.
+## 1. Benefits of the SHM buffer backend
 
-In this report, “SHM” refers to the benchmark's `memfd` backend. “CPU” refers
-to the normal CPU-backed `rosidl::Buffer` fallback.
+### Baseline across all paths
 
-## Objective 1: benefits of the SHM buffer backend
-
-### Baseline latency across all communication paths
-
-The following table is the baseline reference. Each cell is `p50 / p95`.
-
-| Payload | Inter-process CPU | Inter-process SHM | Intra-process CPU | Intra-process SHM |
+| Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 | 464.2 / 606.6 | 648.0 / 866.7 | 65.0 / 80.6 | 65.2 / 94.1 |
-| 1,024 | 485.7 / 608.5 | 665.0 / 863.7 | 64.3 / 79.3 | 65.1 / 82.1 |
-| 4,096 | 473.5 / 585.9 | 661.1 / 841.8 | 64.5 / 79.7 | 59.3 / 81.9 |
-| 16,384 | 514.9 / 623.0 | 600.3 / 869.8 | 58.0 / 81.1 | 72.5 / 82.3 |
-| 65,536 | 514.1 / 664.0 | 657.5 / 898.1 | 63.6 / 88.2 | 66.9 / 83.9 |
-| 262,144 | 717.9 / 938.2 | 667.9 / 928.2 | 66.7 / 94.0 | 66.9 / 84.7 |
-| 1,048,576 | 12,523.3 / 13,080.2 | 883.0 / 1,115.8 | 70.1 / 90.7 | 64.4 / 91.2 |
-| 4,194,304 | 14,163.0 / 15,089.1 | 1,325.0 / 1,622.6 | 67.2 / 102.5 | 74.8 / 94.7 |
-| 16,777,216 | 15,747.1 / 16,260.7 | 2,523.4 / 2,827.4 | 56.8 / 64.4 | 69.5 / 88.1 |
+| 64 B | 643.1 / 694.0 | 952.6 / 1,036.6 | 41.5 / 94.0 | 46.6 / 48.0 |
+| 1 KiB | 626.2 / 703.8 | 938.0 / 1,038.4 | 44.9 / 96.2 | 45.7 / 48.4 |
+| 4 KiB | 632.0 / 709.1 | 924.1 / 1,052.0 | 43.7 / 90.0 | 45.9 / 48.3 |
+| 16 KiB | 667.9 / 725.5 | 970.6 / 1,047.9 | 41.6 / 85.2 | 44.9 / 48.4 |
+| 64 KiB | 697.4 / 747.1 | 978.5 / 1,047.8 | 43.4 / 86.4 | 44.2 / 48.2 |
+| 256 KiB | 1,062.4 / 1,128.8 | 1,020.6 / 1,093.2 | 44.8 / 47.6 | 46.8 / 50.6 |
+| 1 MiB | 2,433.3 / 13,675.6 | 1,185.4 / 1,289.1 | 47.4 / 50.1 | 50.0 / 55.3 |
+| 4 MiB | 15,958.3 / 16,229.9 | 1,719.0 / 1,833.2 | 47.1 / 54.9 | 55.9 / 73.9 |
+| 16 MiB | 14,769.5 / 15,218.9 | 2,283.5 / 2,773.0 | 11.7 / 32.4 | 50.4 / 51.9 |
 
-### Intra-process behavior
+Intra-process results remain the fastest overall, generally around 40–60 µs
+p50. The SHM/memfd intra-process path is slightly slower than CPU at many
+sizes; for example, at 4 MiB the p50 is 55.9 µs versus 47.1 µs. This supports
+the expected small bookkeeping overhead, although the difference is small
+relative to end-to-end scheduling variability.
 
-Intra-process communication is the fastest path throughout the size sweep. The
-baseline p50 ranges are 56.8–70.1 µs for CPU and 59.3–74.8 µs for SHM. The
-address check passed for all intra-process cases, confirming that the benchmark
-used the intended direct intra-process buffer path.
+For inter-process communication, the CPU path changes to a much slower regime
+at multi-megabyte sizes. At 16 MiB, inter-process SHM is 6.5× faster than CPU
+by p50 (2.28 ms versus 14.77 ms). At 4 MiB the advantage is 9.3×.
 
-The expectation that SHM introduces some intra-process overhead is supported at
-some sizes: SHM is 25.1% slower than CPU at 16 KiB and 22.4% slower at 16 MiB.
-However, it is not a uniform penalty: SHM is slightly faster at 4 KiB and 1
-MiB in this run. Therefore, the defensible conclusion is that intra-process
-communication is already dominated by a small fixed end-to-end cost, and any
-additional SHM bookkeeping is small compared with scheduler and executor
-variation for many sizes.
+The SHM path is therefore beneficial for large same-host buffers: the
+subscriber can access the shared payload without moving the full payload
+through the normal CPU-backed path. Baseline SHM is not constant-time,
+however; its large-buffer publish path is the subject of the next section.
 
-### Inter-process behavior and SHM benefit
+## 2. Large-buffer publish behavior with the SHM backend
 
-For payloads through 256 KiB, the two inter-process backends are of the same
-order of magnitude. At 1 MiB and above, the CPU fallback changes regime: its
-p50 rises to 12.5–15.7 ms, while the baseline SHM path remains between 0.88 ms
-and 2.52 ms. At 16 MiB, baseline SHM is 6.2x faster than baseline CPU by p50.
+### Observed problem
 
-This establishes the practical SHM benefit for recurring, same-host large
-buffers: the subscriber can consume the shared buffer without transferring the
-full payload through the normal CPU serialization path.
+Baseline inter-process SHM p50 increases with payload size:
 
-## Objective 2: the large-buffer publish problem
+| Payload | 1 MiB | 4 MiB | 16 MiB |
+|---:|---:|---:|---:|
+| Baseline inter-process SHM p50 | 1,185.4 µs | 1,719.0 µs | 2,283.5 µs |
 
-### Observed symptom
+This size dependence is consistent with avoidable work in the RMW publish path,
+where a temporary serialization buffer is prepared even when the downstream
+SHM endpoint can use shared storage.
 
-The baseline inter-process SHM path is not perfectly constant with payload
-size. Its p50 increases from 0.88 ms at 1 MiB to 1.33 ms at 4 MiB and 2.52 ms
-at 16 MiB. This is the problem investigated by the RMW patches. The SHM pool
-and subscriber-side direct access are not sufficient by themselves to produce
-constant end-to-end latency when the publisher still prepares a size-dependent
-temporary serialization buffer.
-
-### Effect of the three RMW alternatives
-
-The table shows inter-process SHM results for the large-buffer region. Each cell
-is `p50 / p95`.
+### Patch comparison on the target path
 
 | Payload | Baseline | `unique_ptr` | `lazy` | `reserve` |
 |---:|---:|---:|---:|---:|
-| 1 MiB | 883.0 / 1,115.8 | 700.5 / 924.6 | 595.1 / 885.4 | 631.9 / 865.5 |
-| 4 MiB | 1,325.0 / 1,622.6 | 622.7 / 889.5 | 602.0 / 858.7 | 645.9 / 846.2 |
-| 16 MiB | 2,523.4 / 2,827.4 | 603.3 / 684.4 | 504.2 / 671.0 | 544.8 / 668.1 |
+| 1 MiB | 1,185.4 / 1,289.1 | 987.9 / 1,070.7 | 951.1 / 1,045.9 | 975.8 / 1,054.5 |
+| 4 MiB | 1,719.0 / 1,833.2 | 885.7 / 1,004.1 | 892.4 / 964.7 | 923.5 / 1,035.7 |
+| 16 MiB | 2,283.5 / 2,773.0 | 740.6 / 791.6 | 715.3 / 793.2 | 713.3 / 790.0 |
 
-All three alternatives remove the dominant size-dependent component at large
-payloads. The 16 MiB p50 reduction is 76.1% for `unique_ptr`, 80.0% for
-`lazy`, and 78.4% for `reserve` relative to baseline. After the change, the
-three variants are within roughly 0.5–0.7 ms at 1–16 MiB, which is the expected
-near-constant SHM publish behavior much more closely.
+At 16 MiB, the p50 reduction versus baseline is 67.6% for `unique_ptr`, 68.7%
+for `lazy`, and 68.8% for `reserve`. The patched results are approximately
+0.7–1.0 ms over the 1–16 MiB range, much closer to constant-time behavior than
+the baseline.
 
-The most direct explanation is the allocation behavior in
-`publish_to_buffer_endpoints()`:
+The rerun therefore confirms the large-buffer publish problem and confirms that
+all three alternatives address its dominant cost. It does not establish that
+one patch is universally best: `lazy` and `reserve` are marginally lower at
+16 MiB, while the differences between patched variants are small compared with
+the total end-to-end path.
 
-- Baseline allocates `std::vector<uint8_t>(buffer_size)`, which value-initializes
-  the entire size-dependent temporary buffer.
-- `unique_ptr` keeps the original external `FastBuffer` and per-endpoint
-  lifetime but uses `new uint8_t[]` without an initializer.
-- `lazy` uses an internally managed `FastBuffer` and lets it grow as needed.
-- `reserve` uses an internally managed `FastBuffer` and explicitly reserves the
-  serialized size before CDR serialization.
+## 3. `rmw_fastrtps_cpp` fix and regression check
 
-The end-to-end results identify avoidance of the baseline zero-fill/allocation
-cost as the important factor. They do not prove that a publisher-lifetime
-buffer pool is needed: none of these three patches reuses the temporary buffer
-across publish calls.
-
-## Objective 3: `rmw_fastrtps_cpp` fix and regression check
-
-### Path-level comparison
-
-The table gives the geometric-mean p50 ratio over the nine payload sizes,
-variant divided by baseline. The `faster / within ±2% / slower` counts are
-descriptive counts of the nine size points.
+The following ratios compare each variant's median p50 at each size with the
+baseline, then take the geometric mean over the nine sizes. Counts are
+`faster / within ±2% / slower` and are descriptive, not significance tests.
 
 | Variant | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---|---:|---:|---:|---:|
-| `unique_ptr` | 0.917x; 6 / 3 / 0 | 0.750x; 6 / 0 / 3 | 0.922x; 6 / 2 / 1 | 0.903x; 7 / 0 / 2 |
-| `lazy` | 0.946x; 4 / 4 / 1 | 0.701x; 6 / 2 / 1 | 0.977x; 5 / 2 / 2 | 0.957x; 5 / 1 / 3 |
-| `reserve` | 0.981x; 3 / 4 / 2 | 0.752x; 5 / 2 / 2 | 0.896x; 8 / 1 / 0 | 0.942x; 4 / 5 / 0 |
+| `unique_ptr` | 0.975×; 5 / 2 / 2 | 0.787×; 7 / 2 / 0 | 0.990×; 4 / 3 / 2 | 0.988×; 4 / 4 / 1 |
+| `lazy` | 1.200×; 1 / 7 / 1 | 0.787×; 7 / 1 / 1 | 1.011×; 2 / 4 / 3 | 0.999×; 2 / 5 / 2 |
+| `reserve` | 0.985×; 3 / 3 / 3 | 0.787×; 7 / 2 / 0 | 0.985×; 4 / 4 / 1 | 0.973×; 5 / 4 / 0 |
 
-The inter-process SHM column is the direct target path. All three alternatives
-improve its large-payload behavior, and all have a geometric-mean p50 of about
-0.70–0.75x baseline. Small-size changes are mixed: for example, `reserve` is
-11.4% slower at 16 KiB, while `lazy` is 24.2% faster at 64 KiB. These isolated
-points should not be treated as definitive regressions without more repetitions
-or direct internal timing.
+The direct target path, inter-process SHM, improves consistently: every patch
+has a geometric-mean p50 of about 0.79× baseline, and none is slower than
+baseline at more than two percent at any of the nine size points except one
+`lazy` point. The large-buffer table shows why this is the important result.
 
-The other three columns are regression-control paths. Intra-process publication
-does not execute the RMW buffer-endpoint publishing function, and the CPU
-inter-process path has no non-CPU endpoint. Consequently, the apparent
-improvements or regressions in those columns are end-to-end run variation, not
-direct evidence that the patch changes those communication paths. No systematic
-regression was observed in those controls.
+The CPU inter-process and both intra-process columns are regression controls.
+They do not show a systematic degradation across the alternatives. The
+`lazy` CPU inter-process ratio is elevated by run-to-run variation in this
+rerun, despite seven of its nine size points being within two percent of
+baseline; it is not evidence that the patch changes the CPU path's intended
+large-buffer behavior.
 
-### Patch-specific interpretation
+## Validation and limitations
 
-- `unique_ptr` is the smallest conceptual change. It preserves the external
-  `FastBuffer` and per-endpoint structure while removing value initialization.
-  It produces a strong large-buffer improvement and a 0.75x geometric-mean
-  p50 on the direct target path.
-- `lazy` avoids both the external allocation and the explicit size calculation
-  in the endpoint loop. It has the best direct-path geometric-mean p50 in this
-  experiment, 0.70x baseline, and reaches 0.50 ms at 16 MiB.
-- `reserve` avoids lazy growth while retaining an internally managed
-  `FastBuffer`. Its direct-path result is similar to `unique_ptr`, but reserving
-  does not eliminate all allocation work and does not provide a clear advantage
-  over the lazy alternative in this end-to-end measurement.
-
-The result supports accepting the zero-initialization fix as a focused RMW
-change candidate. A separate publisher-lifetime buffer reuse design should be
-evaluated independently, especially with concurrent publishes and multiple
-non-CPU endpoints.
-
-## Validation and reproducibility
-
-### Benchmark validation
-
-Each of the four raw CSV files contains 180 rows: 5 repeats × 4 paths × 9
-payload sizes. All 720 cases across the four files satisfy the following:
-
-- `received=30`.
-- `measured=20`.
-- Every intra-process row has `va_matches=30`.
-- The reported backend matches the requested CPU or SHM mode.
-- No benchmark timeout, backend mismatch, or intra-process address-sharing
-  failure occurred.
-
-Raw results:
+All four copied CSV files contain 180 rows, giving 720 rows in total. Every
+row reports `received=30` and `measured=20`, so the requested message-count and
+warm-up configuration is present throughout the dataset. Every
+`intra_process_va` row also reports `va_matches=30`, confirming the expected
+publisher/subscriber address sharing for all 30 messages. The raw files are:
 
 - [baseline.csv](./benchmark-results-16way/baseline.csv)
 - [unique_ptr.csv](./benchmark-results-16way/unique_ptr.csv)
 - [lazy.csv](./benchmark-results-16way/lazy.csv)
 - [reserve.csv](./benchmark-results-16way/reserve.csv)
 
-### Build and test status
+This remains an end-to-end measurement on one host. DDS discovery, executor
+scheduling, and CPU affinity can affect the reported percentiles. The result
+supports the performance direction and the absence of an obvious regression;
+it is not a substitute for focused correctness tests, concurrent-publish
+tests, or component-level allocation/serialization timing.
 
-All four variants compiled successfully as Release builds in separate install
-prefixes. The benchmark matrix itself completed successfully for every
-variant.
+## Reproduction
 
-The `rmw_fastrtps_cpp` package test target was also invoked for every build.
-All four test runs were blocked by the same pre-existing environment problem:
-the test runner imports `ament_cmake_test`, but the active Lyrical Python
-environment does not provide that module. The failure occurred before the
-individual tests ran (`ModuleNotFoundError: No module named ament_cmake_test`),
-including for the unmodified baseline. Therefore, the
-test result is inconclusive for patch regressions; it is not a patch-specific
-failure.
+The 720-case orchestration script is installed as
+`run_16way_benchmark.py`. It starts from `origin/lyrical`, applies each patch
+independently, builds separate Release prefixes, runs all four paths, and
+restores the original `rmw_fastrtps` checkout. The default invocation is:
 
-### Limitations
-
-- This is one host and one execution configuration. CPU affinity was fixed,
-  but scheduler, DDS discovery, and executor effects remain in the end-to-end
-  interval.
-- Each case contains only 20 post-warm-up samples per repeat. The reported
-  repeat median and range are more robust than a single run, but they are not a
-  formal confidence interval.
-- The benchmark uses one non-CPU endpoint, so it does not measure buffer reuse
-  across several non-CPU endpoints.
-- The result demonstrates the externally visible large-buffer effect. Direct
-  timings for `get_serialized_size()`, allocation, CDR serialization, and
-  `write_w_timestamp()` would provide stronger component-level attribution.
-
-## Recommended follow-up
-
-For upstream `rmw_fastrtps_cpp` review, the most defensible next step is to
-submit or further validate the smallest zero-initialization change, then add
-focused tests for:
-
-1. Multiple non-CPU endpoints receiving the same published message.
-2. Concurrent calls to `rmw_publish()`.
-3. Serialization correctness for small descriptors and large SHM-backed
-   payloads.
-4. Internal allocation and serialization timing, separated from DDS delivery
-   and subscriber scheduling.
+```bash
+source ~/ros2_lyrical/install/setup.bash
+source install/setup.bash
+ros2 run memfd_buffer_backend_benchmark run_16way_benchmark.py \
+  --output-dir benchmark-results-16way-rerun \
+  --overwrite
+```
