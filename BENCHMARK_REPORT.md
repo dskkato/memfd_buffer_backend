@@ -233,10 +233,10 @@ payload sizes. All 720 cases across the four files satisfy the following:
 
 Raw results:
 
-- [baseline.csv](../../benchmark-results-16way/baseline.csv)
-- [unique_ptr.csv](../../benchmark-results-16way/unique_ptr.csv)
-- [lazy.csv](../../benchmark-results-16way/lazy.csv)
-- [reserve.csv](../../benchmark-results-16way/reserve.csv)
+- [baseline.csv](./benchmark-results-16way/baseline.csv)
+- [unique_ptr.csv](./benchmark-results-16way/unique_ptr.csv)
+- [lazy.csv](./benchmark-results-16way/lazy.csv)
+- [reserve.csv](./benchmark-results-16way/reserve.csv)
 
 ### Build and test status
 
@@ -279,7 +279,3 @@ focused tests for:
    payloads.
 4. Internal allocation and serialization timing, separated from DDS delivery
    and subscriber scheduling.
-
-The existing [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) is intentionally left
-unchanged; this file is the reorganized objective-based report for the complete
-16-way measurement.
