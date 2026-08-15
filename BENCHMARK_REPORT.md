@@ -71,7 +71,11 @@ be interpreted as proof of a payload-sized copy on the SHM wire path.
 
 ![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
 
-The same four-path p50 view is also available for each patched variant:
+The same four-path p50 and average view is also available for each patched
+variant. Solid lines are the median across five repeat-level p50 values;
+dashed lines are the arithmetic average across all 100 raw samples for each
+size/path case. The average is included because the inter-process CPU path is
+clearly bimodal.
 
 - [`unique_ptr`](./figures/unique_ptr-path-latency.png)
 - [`lazy`](./figures/lazy-path-latency.png)

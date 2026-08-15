@@ -6,7 +6,7 @@ import csv
 import math
 from collections import defaultdict
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 
 import matplotlib
 
@@ -113,6 +113,7 @@ def read_raw_results(data_dir):
             )
             values[key].append(
                 {
+                    "repeat": int(row["repeat"]),
                     "publish_duration_us": int(row["publish_duration_ns"]) / 1000.0,
                     "e2e_latency_us": int(row["e2e_latency_ns"]) / 1000.0,
                 }
@@ -214,23 +215,43 @@ def save_figure(figure, output_dir, name):
     plt.close(figure)
 
 
-def plot_variant_paths(results, output_dir, variant):
+def raw_average_series(raw_results, variant, communication, backend):
+    return [
+        mean(
+            row["e2e_latency_us"]
+            for row in raw_results[(variant, communication, backend, size)]
+        )
+        for size in SIZES
+    ]
+
+
+def plot_variant_paths(results, raw_results, output_dir, variant):
     figure, axis = plt.subplots(figsize=(11, 6.5))
     for communication, backend, title in PATHS:
         p50 = series(results, variant, communication, backend, "p50_us")
+        average = raw_average_series(raw_results, variant, communication, backend)
+        color = PATH_COLORS[title]
         axis.plot(
-            SIZES, p50, marker="o", linewidth=2.2, color=PATH_COLORS[title],
+            SIZES, p50, marker="o", linewidth=2.2, color=color,
             label=title
+        )
+        axis.plot(
+            SIZES,
+            average,
+            linestyle="--",
+            linewidth=1.2,
+            alpha=0.75,
+            color=color,
         )
     configure_axis(axis)
     axis.set_yscale("log")
     axis.set_ylim(bottom=10)
     axis.set_xlabel("Payload size")
-    axis.set_ylabel("p50 latency (µs)")
+    axis.set_ylabel("Latency (µs)")
     axis.set_title(
-        f"{VARIANT_LABELS[variant].capitalize()} p50 latency across communication and buffer paths"
+        f"{VARIANT_LABELS[variant].capitalize()} p50 and average latency across communication and buffer paths"
     )
-    axis.legend(frameon=True)
+    axis.legend(title="p50 (solid); average (dashed)", frameon=True)
     figure.tight_layout()
     save_figure(figure, output_dir, f"{variant}-path-latency")
 
@@ -291,7 +312,7 @@ def main():
         "axes.facecolor": "#FFFFFF",
     })
     for variant in VARIANTS:
-        plot_variant_paths(results, args.output_dir, variant)
+        plot_variant_paths(results, raw_results, args.output_dir, variant)
     plot_inter_variant_comparison(
         results, args.output_dir, "memfd", "SHM", "inter-shm-variant-comparison"
     )
