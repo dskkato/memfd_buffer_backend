@@ -14,9 +14,9 @@ The main observations are:
   not describe the behavior well.
 - Inter-process SHM is slower than inter-process CPU for small payloads, but
   it avoids the large CPU-path latency regime. Baseline SHM p50 grows from
-  1.16 ms at 1 MiB to 2.28 ms at 16 MiB.
+  1.17 ms at 1 MiB to 2.29 ms at 16 MiB.
 - The three patches reduce the inter-process SHM p50 at 16 MiB to
-  0.72--0.75 ms, a 67.2--68.4% reduction from baseline.
+  0.72--0.75 ms, a 67.7--68.5% reduction from baseline.
 - The raw publish timing shows the same effect directly. At 1 MiB, SHM
   `publish()` p50 decreases from 672.6 µs for baseline to 410.1--423.4 µs
   for the patched variants.
@@ -37,8 +37,10 @@ The matrix contains:
 - 2 backends: `cpu` and `memfd` (called SHM below).
 
 The summary contains 720 cases and the raw files contain 14,400 measured
-sample rows. The summary table cells below are the median across five
-repeats of each repeat's percentile, in microseconds, shown as `p50 / p95`.
+sample rows. The summary table cells below are calculated directly from the 100
+raw measured samples for each case (five repeats × 20 samples), in
+microseconds, shown as `p50 / p95`. The percentile rank follows the benchmark
+executable's lower-rank selection rule.
 The 1 MiB histograms use the 100 raw e2e latency samples for each variant and
 backend directly.
 
@@ -53,19 +55,19 @@ The benchmark records two independent timing quantities:
 
 | Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 B | 636.3 / 705.4 | 942.8 / 1,085.4 | 145.1 / 179.1 | 114.7 / 132.4 |
-| 1 KiB | 641.3 / 706.3 | 940.2 / 1,057.4 | 120.4 / 160.3 | 114.6 / 143.3 |
-| 4 KiB | 661.8 / 729.9 | 914.0 / 1,036.3 | 118.4 / 152.7 | 127.3 / 169.3 |
-| 16 KiB | 668.7 / 758.9 | 921.5 / 1,046.1 | 123.4 / 163.3 | 119.7 / 135.6 |
-| 64 KiB | 672.9 / 754.5 | 954.3 / 1,081.8 | 122.5 / 163.8 | 116.3 / 141.5 |
-| 256 KiB | 1,009.1 / 1,153.5 | 1,036.1 / 1,121.0 | 114.3 / 131.8 | 116.8 / 128.2 |
-| 1 MiB | 12,561.5 / 13,710.6 | 1,161.7 / 1,284.5 | 118.1 / 128.4 | 119.7 / 131.0 |
-| 4 MiB | 15,502.1 / 15,939.4 | 1,707.7 / 1,801.6 | 108.2 / 115.4 | 129.5 / 149.7 |
-| 16 MiB | 14,899.8 / 15,452.4 | 2,284.7 / 2,663.4 | 31.0 / 78.3 | 111.1 / 120.0 |
+| 64 B | 636.3 / 726.9 | 951.4 / 1,091.2 | 144.5 / 179.9 | 114.8 / 173.8 |
+| 1 KiB | 641.5 / 719.7 | 942.3 / 1,060.1 | 120.4 / 174.2 | 115.7 / 162.4 |
+| 4 KiB | 667.8 / 753.0 | 927.2 / 1,045.0 | 118.4 / 166.0 | 121.5 / 169.3 |
+| 16 KiB | 677.1 / 758.9 | 921.5 / 1,057.8 | 123.4 / 176.0 | 118.3 / 167.6 |
+| 64 KiB | 687.6 / 776.9 | 958.8 / 1,107.0 | 124.6 / 174.8 | 123.1 / 168.2 |
+| 256 KiB | 1,009.1 / 1,153.5 | 1,033.0 / 1,128.8 | 113.8 / 138.6 | 116.1 / 136.5 |
+| 1 MiB | 11,700.0 / 13,774.4 | 1,172.9 / 1,298.2 | 118.4 / 128.7 | 119.8 / 132.9 |
+| 4 MiB | 15,407.8 / 16,025.3 | 1,700.0 / 1,822.6 | 108.2 / 117.2 | 131.3 / 152.5 |
+| 16 MiB | 14,879.5 / 16,019.0 | 2,289.5 / 2,718.5 | 37.1 / 78.9 | 112.7 / 127.5 |
 
 The baseline plot shows that the CPU path enters a multi-millisecond regime at
 1 MiB and above. SHM avoids that regime, but its latency is not constant: the
-baseline SHM p50 increases from 1,161.7 µs at 1 MiB to 2,284.7 µs at 16 MiB.
+baseline SHM p50 increases from 1,172.9 µs at 1 MiB to 2,289.5 µs at 16 MiB.
 This is an observed size-dependent cost on the end-to-end path; it should not
 be interpreted as proof of a payload-sized copy on the SHM wire path.
 
@@ -88,11 +90,11 @@ inter-process cost:
 
 | Payload | SHM inter-process difference | CPU inter-process difference | Residual SHM-specific difference |
 |---:|---:|---:|---:|
-| 64 B | 828 µs | 491 µs | 337 µs |
-| 1 KiB | 826 µs | 521 µs | 305 µs |
-| 4 KiB | 787 µs | 543 µs | 243 µs |
-| 16 KiB | 802 µs | 545 µs | 257 µs |
-| 64 KiB | 838 µs | 550 µs | 288 µs |
+| 64 B | 837 µs | 492 µs | 345 µs |
+| 1 KiB | 827 µs | 521 µs | 306 µs |
+| 4 KiB | 806 µs | 549 µs | 256 µs |
+| 16 KiB | 803 µs | 554 µs | 250 µs |
+| 64 KiB | 836 µs | 563 µs | 273 µs |
 
 This leaves approximately 0.24--0.34 ms of fixed overhead for small
 inter-process SHM messages. It is reasonable to attribute this residual to
@@ -111,10 +113,9 @@ descriptor overhead.
 ![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
 
 The same four-path p50 and average view is also available for each patched
-variant. Solid lines are the median across five repeat-level p50 values;
-dashed lines are the arithmetic average across all 100 raw samples for each
-size/path case. The average is included because the inter-process CPU path is
-clearly bimodal.
+variant. Solid lines are p50 values calculated from all 100 raw samples for
+each size/path case; dashed lines are the arithmetic average of those samples.
+The average is included because the inter-process CPU path is clearly bimodal.
 
 - [`unique_ptr`](./figures/unique_ptr-path-latency.png)
 - [`lazy`](./figures/lazy-path-latency.png)
@@ -126,43 +127,43 @@ clearly bimodal.
 
 | Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 B | 652.3 / 719.9 | 929.9 / 1,053.9 | 133.4 / 163.2 | 116.4 / 139.5 |
-| 1 KiB | 648.8 / 713.0 | 941.3 / 1,056.3 | 123.7 / 168.2 | 116.8 / 134.8 |
-| 4 KiB | 644.1 / 726.6 | 959.9 / 1,052.3 | 111.6 / 163.2 | 117.9 / 147.0 |
-| 16 KiB | 703.0 / 787.2 | 936.3 / 1,043.2 | 120.2 / 158.2 | 116.0 / 134.1 |
-| 64 KiB | 688.6 / 727.1 | 928.7 / 1,040.3 | 144.7 / 160.5 | 120.6 / 163.2 |
-| 256 KiB | 1,032.0 / 1,127.9 | 937.4 / 1,043.2 | 114.1 / 137.3 | 117.7 / 128.8 |
-| 1 MiB | 13,019.2 / 13,572.9 | 936.5 / 1,056.9 | 115.7 / 127.6 | 120.1 / 131.7 |
-| 4 MiB | 13,631.8 / 13,999.6 | 884.8 / 1,011.5 | 107.0 / 121.6 | 131.9 / 149.6 |
-| 16 MiB | 13,318.1 / 13,489.1 | 749.6 / 815.6 | 34.8 / 77.8 | 114.6 / 127.0 |
+| 64 B | 664.2 / 747.6 | 933.4 / 1,069.6 | 129.4 / 169.7 | 118.7 / 157.3 |
+| 1 KiB | 653.2 / 743.5 | 947.7 / 1,069.2 | 123.7 / 173.4 | 118.8 / 169.5 |
+| 4 KiB | 648.8 / 746.6 | 973.4 / 1,066.2 | 118.4 / 174.1 | 122.8 / 166.4 |
+| 16 KiB | 706.6 / 789.1 | 937.4 / 1,057.2 | 120.7 / 174.8 | 116.4 / 154.4 |
+| 64 KiB | 691.2 / 779.7 | 918.4 / 1,040.9 | 137.3 / 171.9 | 120.6 / 170.1 |
+| 256 KiB | 1,015.7 / 1,143.6 | 937.6 / 1,046.8 | 114.4 / 140.0 | 117.9 / 129.1 |
+| 1 MiB | 11,528.3 / 13,607.7 | 943.2 / 1,057.1 | 115.7 / 128.2 | 120.4 / 134.8 |
+| 4 MiB | 13,639.7 / 14,052.2 | 897.6 / 1,021.2 | 112.7 / 137.1 | 133.8 / 158.3 |
+| 16 MiB | 13,363.8 / 15,714.3 | 739.8 / 816.6 | 41.0 / 79.3 | 115.0 / 127.5 |
 
 ### `lazy`
 
 | Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 B | 690.6 / 749.0 | 948.5 / 1,058.2 | 121.8 / 159.0 | 118.2 / 127.6 |
-| 1 KiB | 633.8 / 716.4 | 936.9 / 1,051.5 | 120.2 / 158.3 | 116.1 / 141.3 |
-| 4 KiB | 663.9 / 742.4 | 942.9 / 1,058.6 | 115.0 / 161.3 | 118.5 / 133.3 |
-| 16 KiB | 688.3 / 782.9 | 934.7 / 1,042.0 | 157.1 / 178.1 | 115.9 / 127.7 |
-| 64 KiB | 689.8 / 785.9 | 937.4 / 1,036.1 | 114.0 / 140.2 | 112.8 / 128.2 |
-| 256 KiB | 1,068.3 / 1,137.3 | 935.1 / 1,048.9 | 114.8 / 124.6 | 116.2 / 129.8 |
-| 1 MiB | 11,039.5 / 13,609.3 | 916.4 / 1,049.9 | 116.8 / 129.8 | 120.9 / 131.1 |
-| 4 MiB | 15,213.5 / 16,048.0 | 901.7 / 1,032.5 | 114.6 / 133.2 | 132.6 / 152.4 |
-| 16 MiB | 14,775.9 / 15,206.7 | 724.3 / 801.5 | 41.6 / 79.0 | 113.6 / 120.3 |
+| 64 B | 680.1 / 754.4 | 944.0 / 1,073.8 | 120.7 / 174.7 | 118.2 / 160.4 |
+| 1 KiB | 633.8 / 741.7 | 942.1 / 1,059.1 | 121.1 / 171.6 | 116.1 / 151.6 |
+| 4 KiB | 666.1 / 752.3 | 956.8 / 1,071.7 | 115.9 / 169.6 | 118.5 / 167.1 |
+| 16 KiB | 701.8 / 792.3 | 936.0 / 1,044.9 | 153.8 / 190.3 | 116.7 / 150.6 |
+| 64 KiB | 682.0 / 786.6 | 925.1 / 1,091.9 | 115.3 / 177.4 | 114.2 / 139.0 |
+| 256 KiB | 1,076.0 / 1,139.8 | 937.4 / 1,054.9 | 114.6 / 136.5 | 117.1 / 129.8 |
+| 1 MiB | 13,005.8 / 13,638.0 | 935.6 / 1,050.5 | 117.3 / 130.2 | 120.9 / 133.2 |
+| 4 MiB | 15,374.4 / 16,209.4 | 915.6 / 1,049.2 | 113.4 / 140.0 | 133.7 / 155.0 |
+| 16 MiB | 14,786.7 / 15,270.8 | 727.6 / 805.7 | 41.6 / 79.6 | 113.3 / 124.8 |
 
 ### `reserve`
 
 | Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 B | 642.9 / 704.7 | 945.2 / 1,060.5 | 144.2 / 181.0 | 114.6 / 137.5 |
-| 1 KiB | 639.6 / 732.3 | 932.3 / 1,059.7 | 138.4 / 165.3 | 114.8 / 126.3 |
-| 4 KiB | 639.9 / 731.3 | 897.7 / 1,038.0 | 124.2 / 154.7 | 115.3 / 153.7 |
-| 16 KiB | 708.5 / 773.9 | 929.7 / 1,053.7 | 143.6 / 175.0 | 114.7 / 127.0 |
-| 64 KiB | 685.4 / 736.7 | 917.1 / 1,044.3 | 115.1 / 157.0 | 116.7 / 133.0 |
-| 256 KiB | 1,068.3 / 1,136.6 | 898.2 / 1,028.7 | 114.8 / 147.1 | 115.1 / 126.1 |
-| 1 MiB | 12,804.1 / 13,584.9 | 933.6 / 1,043.7 | 117.5 / 128.9 | 120.4 / 137.0 |
-| 4 MiB | 13,646.1 / 13,921.1 | 889.1 / 977.2 | 106.3 / 119.0 | 129.6 / 149.5 |
-| 16 MiB | 13,272.6 / 13,499.8 | 722.4 / 804.2 | 64.7 / 78.8 | 116.5 / 128.2 |
+| 64 B | 640.2 / 727.0 | 966.0 / 1,067.9 | 137.7 / 184.4 | 113.0 / 155.1 |
+| 1 KiB | 647.7 / 745.7 | 891.5 / 1,059.7 | 134.2 / 171.5 | 115.8 / 153.7 |
+| 4 KiB | 644.4 / 747.9 | 908.5 / 1,046.0 | 130.9 / 171.6 | 116.3 / 153.8 |
+| 16 KiB | 716.7 / 791.7 | 937.8 / 1,056.0 | 134.9 / 180.1 | 115.6 / 165.3 |
+| 64 KiB | 668.3 / 740.4 | 895.9 / 1,053.1 | 118.3 / 166.3 | 116.1 / 152.6 |
+| 256 KiB | 1,047.2 / 1,164.0 | 870.7 / 1,030.6 | 115.0 / 157.7 | 115.5 / 127.0 |
+| 1 MiB | 13,139.5 / 13,585.6 | 923.7 / 1,056.9 | 114.8 / 128.9 | 119.7 / 137.4 |
+| 4 MiB | 13,655.4 / 13,967.0 | 895.1 / 989.8 | 106.7 / 131.3 | 133.0 / 153.5 |
+| 16 MiB | 13,282.3 / 13,502.3 | 720.3 / 806.3 | 69.0 / 78.8 | 115.7 / 129.2 |
 
 The CPU regression-control results do not show a consistent patch effect. The
 SHM results do: at 16 MiB, all three patches reduce p50 by about two thirds.
@@ -170,9 +171,9 @@ The geometric-mean p50 ratios versus baseline are:
 
 | Variant | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---|---:|---:|---:|---:|
-| `unique_ptr` | 0.989× | 0.795× | 1.012× | 1.002× |
-| `lazy` | 1.003× | 0.792× | 1.035× | 0.995× |
-| `reserve` | 0.987× | 0.781× | 1.116× | 0.989× |
+| `unique_ptr` | 0.983× | 0.794× | 1.013× | 1.011× |
+| `lazy` | 1.027× | 0.793× | 1.012× | 0.996× |
+| `reserve` | 0.992× | 0.773× | 1.091× | 0.988× |
 
 ![Inter-process SHM patch comparison](./figures/inter-shm-variant-comparison.png)
 

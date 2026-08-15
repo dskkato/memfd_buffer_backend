@@ -41,7 +41,7 @@ PATH_COLORS = {
 }
 SIZES = (64, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216)
 ONE_MIB = 1048576
-METRICS = ("p50_us", "p95_us", "p99_us")
+PERCENTILES = (("p50_us", 0.50), ("p95_us", 0.95), ("p99_us", 0.99))
 
 
 def size_label(size):
@@ -49,44 +49,6 @@ def size_label(size):
         if size >= divisor and size % divisor == 0:
             return f"{size // divisor} {suffix}"
     return f"{size} B"
-
-
-def read_repeat_results(data_dir):
-    values = defaultdict(list)
-    for variant in VARIANTS:
-        path = data_dir / f"{variant}.csv"
-        with path.open(newline="", encoding="utf-8") as stream:
-            rows = list(csv.DictReader(stream))
-        if len(rows) != 180:
-            raise RuntimeError(f"expected 180 rows in {path}, found {len(rows)}")
-        for row in rows:
-            if row["variant"] != variant:
-                raise RuntimeError(
-                    f"variant mismatch in {path}: {row['variant']} != {variant}"
-                )
-            key = (
-                row["variant"],
-                row["communication"],
-                row["backend"],
-                int(row["size_bytes"]),
-            )
-            values[key].append({metric: float(row[metric]) for metric in METRICS})
-
-    return dict(values)
-
-
-def read_results(data_dir):
-    return aggregate_results(read_repeat_results(data_dir))
-
-
-def aggregate_results(repeat_results):
-    return {
-        key: {
-            metric: median(row[metric] for row in rows)
-            for metric in METRICS
-        }
-        for key, rows in repeat_results.items()
-    }
 
 
 def read_raw_results(data_dir):
@@ -119,6 +81,28 @@ def read_raw_results(data_dir):
                 }
             )
     return dict(values)
+
+
+def percentile(values, p):
+    ordered = sorted(values)
+    return ordered[int((len(ordered) - 1) * p)]
+
+
+def aggregate_raw_results(raw_results):
+    for key, rows in raw_results.items():
+        if len(rows) != 100:
+            raise RuntimeError(
+                f"expected 100 raw samples for {key}, found {len(rows)}"
+            )
+    return {
+        key: {
+            metric: percentile(
+                [row["e2e_latency_us"] for row in rows], p
+            )
+            for metric, p in PERCENTILES
+        }
+        for key, rows in raw_results.items()
+    }
 
 
 def distribution_x_limit(raw_results, metric, tick_step):
@@ -342,9 +326,8 @@ def main():
     args.data_dir = args.data_dir.expanduser().resolve()
     args.output_dir = args.output_dir.expanduser().resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    repeat_results = read_repeat_results(args.data_dir)
-    results = aggregate_results(repeat_results)
     raw_results = read_raw_results(args.data_dir)
+    results = aggregate_raw_results(raw_results)
     expected = len(VARIANTS) * len(PATHS) * len(SIZES)
     if len(results) != expected:
         raise RuntimeError(f"expected {expected} aggregated points, found {len(results)}")
