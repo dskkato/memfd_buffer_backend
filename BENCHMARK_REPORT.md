@@ -163,6 +163,14 @@ This does not yet identify every allocation or serialization operation that
 causes the baseline cost. It does show that the reduction is already visible
 around `publish()`, and that the e2e improvement follows the same direction.
 
+The publish-only raw distributions are shown below. These use the same
+four-row layout and common 100 µs bins; their x-axis is shared between CPU and
+SHM and spans 0--4,000 µs.
+
+![1 MiB inter-process CPU publish duration frequency distribution](./figures/1m-inter-cpu-publish-duration-distribution.png)
+
+![1 MiB inter-process SHM publish duration frequency distribution](./figures/1m-inter-shm-publish-duration-distribution.png)
+
 ## Limitations and interpretation
 
 The SHM path is not demonstrated to be strictly constant-time with respect to

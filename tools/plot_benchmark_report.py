@@ -120,19 +120,28 @@ def read_raw_results(data_dir):
     return dict(values)
 
 
-def distribution_x_limit(raw_results):
+def distribution_x_limit(raw_results, metric, tick_step):
     values = [
-        row["e2e_latency_us"]
+        row[metric]
         for variant in VARIANTS
         for backend in ("cpu", "memfd")
         for row in raw_results[(variant, "inter_process", backend, ONE_MIB)]
     ]
-    tick_step = 2000
     return max(tick_step, math.ceil(max(values) * 1.05 / tick_step) * tick_step)
 
 
 def plot_one_mib_histogram(
-    raw_results, output_dir, backend, backend_label, name, x_limit
+    raw_results,
+    output_dir,
+    backend,
+    backend_label,
+    name,
+    x_limit,
+    metric,
+    bin_width,
+    tick_step,
+    metric_label,
+    figure_label,
 ):
     figure, axes = plt.subplots(
         nrows=len(VARIANTS),
@@ -140,11 +149,11 @@ def plot_one_mib_histogram(
         sharex=True,
         figsize=(10.5, 10.5),
     )
-    bins = range(0, x_limit + 250, 250)
+    bins = range(0, x_limit + bin_width, bin_width)
     for axis, variant in zip(axes, VARIANTS):
         rows = raw_results[(variant, "inter_process", backend, ONE_MIB)]
         color = VARIANT_COLORS[variant]
-        values = [row["e2e_latency_us"] for row in rows]
+        values = [row[metric] for row in rows]
         axis.hist(
             values,
             bins=bins,
@@ -169,15 +178,13 @@ def plot_one_mib_histogram(
             loc="left",
             fontsize=10,
         )
-    axes[-1].set_xticks(range(0, x_limit + 1, 2000))
-    axes[-1].set_xlabel(
-        "End-to-end latency (µs); shared x-axis across CPU and SHM plots"
-    )
-    figure.suptitle(f"1 MiB inter-process {backend_label} latency frequency distribution")
+    axes[-1].set_xticks(range(0, x_limit + 1, tick_step))
+    axes[-1].set_xlabel(f"{metric_label}; shared x-axis across CPU and SHM plots")
+    figure.suptitle(f"1 MiB inter-process {backend_label} {figure_label} frequency distribution")
     figure.text(
         0.01,
         0.01,
-        "Raw measured samples: five repeats × 20 samples per variant; common 250 µs bins",
+        f"Raw measured samples: five repeats × 20 samples per variant; common {bin_width} µs bins",
         ha="left",
         va="bottom",
         fontsize=8,
@@ -288,14 +295,19 @@ def main():
     plot_inter_variant_comparison(
         results, args.output_dir, "cpu", "CPU", "inter-cpu-variant-comparison"
     )
-    x_limit = distribution_x_limit(raw_results)
+    e2e_x_limit = distribution_x_limit(raw_results, "e2e_latency_us", 2000)
     plot_one_mib_histogram(
         raw_results,
         args.output_dir,
         "cpu",
         "CPU",
         "1m-inter-cpu-latency-distribution",
-        x_limit,
+        e2e_x_limit,
+        "e2e_latency_us",
+        250,
+        2000,
+        "End-to-end latency (µs)",
+        "latency",
     )
     plot_one_mib_histogram(
         raw_results,
@@ -303,10 +315,43 @@ def main():
         "memfd",
         "SHM",
         "1m-inter-shm-latency-distribution",
-        x_limit,
+        e2e_x_limit,
+        "e2e_latency_us",
+        250,
+        2000,
+        "End-to-end latency (µs)",
+        "latency",
+    )
+    publish_x_limit = distribution_x_limit(raw_results, "publish_duration_us", 500)
+    plot_one_mib_histogram(
+        raw_results,
+        args.output_dir,
+        "cpu",
+        "CPU",
+        "1m-inter-cpu-publish-duration-distribution",
+        publish_x_limit,
+        "publish_duration_us",
+        100,
+        500,
+        "publish() duration (µs)",
+        "publish() duration",
+    )
+    plot_one_mib_histogram(
+        raw_results,
+        args.output_dir,
+        "memfd",
+        "SHM",
+        "1m-inter-shm-publish-duration-distribution",
+        publish_x_limit,
+        "publish_duration_us",
+        100,
+        500,
+        "publish() duration (µs)",
+        "publish() duration",
     )
     print(f"aggregated {len(results)} points from {args.data_dir}")
-    print(f"distribution plots use shared x-limit of {x_limit} µs")
+    print(f"e2e distribution plots use shared x-limit of {e2e_x_limit} µs")
+    print(f"publish distribution plots use shared x-limit of {publish_x_limit} µs")
     print(f"wrote figures to {args.output_dir}")
 
 
