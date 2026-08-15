@@ -14,9 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rostooling/setup-ros-docker:ubuntu-resolute-ros-lyrical-ros-base-latest
-    env:
-      CC: clang
-      CXX: clang++
 
     steps:
       - name: Build and test ROS packages
