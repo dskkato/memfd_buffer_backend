@@ -188,7 +188,8 @@ The figures can be regenerated with the workspace virtual environment:
 
 ```bash
 source .venv/bin/activate
-python src/memfd_buffer_backend/tools/plot_benchmark_report.py
+python src/memfd_buffer_backend/tools/plot_benchmark_report.py \
+  --data-dir src/memfd_buffer_backend/benchmark-results-16way
 ```
 
 This remains an end-to-end measurement on one host. DDS discovery, executor
