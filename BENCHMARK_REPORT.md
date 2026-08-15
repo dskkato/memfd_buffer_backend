@@ -2,26 +2,26 @@
 
 ## Executive summary
 
-This rerun evaluates the four requested communication/backend paths at a 10 Hz
-publication rate, using the current `rmw_fastrtps` `lyrical` commit
-`1aaf7d38dbf4ca34ae208b4aa63d1290deb8c17b` (`1aaf7d3`). The three patches were
-applied independently to that baseline.
+This report uses the rerun in `benchmark-results-16way-rerun`, which
+contains the four variants, nine payload sizes, four communication/backend
+paths, and five repeats. Unlike the previous result set, this rerun also
+contains the raw timing samples.
 
-The rerun confirms the previous conclusion:
+The main observations are:
 
-- Intra-process communication is the fastest path, with typical p50 latency in
-  the tens of microseconds. The `memfd` backend adds a small end-to-end cost in
-  many cases.
-- For inter-process communication, the CPU fallback becomes much slower for
-  multi-megabyte payloads. The baseline reaches 16.0 ms at 4 MiB and 14.8 ms
-  at 16 MiB in this rerun.
-- Inter-process `memfd` is substantially faster for large buffers, but baseline
-  latency still grows from 1.19 ms at 1 MiB to 2.28 ms at 16 MiB.
-- All three `rmw_fastrtps_cpp` alternatives remove most of that large-buffer
-  growth. Their 16 MiB inter-process `memfd` p50 is 0.71–0.74 ms.
-- The regression-control paths do not show a consistent degradation. The
-  strongest effect remains localized to inter-process publication through the
-  non-CPU backend.
+- Inter-process CPU latency has a clear two-regime behavior at 1 MiB. The raw
+  samples cluster near 2.3 ms and 13--14 ms, so a single aggregated p50 does
+  not describe the behavior well.
+- Inter-process SHM is slower than inter-process CPU for small payloads, but
+  it avoids the large CPU-path latency regime. Baseline SHM p50 grows from
+  1.17 ms at 1 MiB to 2.29 ms at 16 MiB.
+- The three patches reduce the inter-process SHM p50 at 16 MiB to
+  0.72--0.75 ms, a 67.7--68.5% reduction from baseline.
+- The raw publish timing shows the same effect directly. At 1 MiB, SHM
+  `publish()` p50 decreases from 672.6 µs for baseline to 410.1--423.4 µs
+  for the patched variants.
+- Intra-process latency is about 110--150 µs in this rerun. It is useful as a
+  regression control, but it is not the target path for these patches.
 
 ## Measurement design
 
@@ -34,142 +34,235 @@ The matrix contains:
 - 30 messages per case at 10 Hz; 10 warm-up messages are excluded, leaving
   20 measured samples.
 - 2 communication modes: `inter_process` and `intra_process_va`.
-- 2 backends: `cpu` and `memfd` (called SHM in the discussion below).
+- 2 backends: `cpu` and `memfd` (called SHM below).
 
-Thus, the complete run contains:
+The summary contains 720 cases and the raw files contain 14,400 measured
+sample rows. The summary table cells below are calculated directly from the 100
+raw measured samples for each case (five repeats × 20 samples), in
+microseconds, shown as `p50 / p95`. The percentile rank follows the benchmark
+executable's lower-rank selection rule.
+The 1 MiB histograms use the 100 raw e2e latency samples for each variant and
+backend directly.
 
-```text
-4 variants × 9 sizes × 5 repeats × 2 communication modes × 2 backends
-= 720 cases
-```
+The benchmark records two independent timing quantities:
 
-The baseline is unmodified `origin/lyrical` at `1aaf7d3`. Each patch is an
-alternative built independently from that baseline, not a cumulative patch
-stack:
+- `publish_duration_ns`: the interval around the publisher's `publish()`
+  boundary. Allocation and payload initialization happen before this interval.
+- `e2e_latency_ns`: the message timestamp to the subscriber's receive-side
+  payload access.
 
-| Variant | Change |
-|---|---|
-| baseline | Unmodified `origin/lyrical` |
-| `unique_ptr` | `0001-fastrtps-reuse-unique-ptr-buffer.patch` |
-| `lazy` | `0002-fastrtps-reuse-fastbuffer-lazy.patch` |
-| `reserve` | `0003-fastrtps-reuse-fastbuffer-reserve.patch` |
-
-The values in the tables are the median across the five repeats of each
-repeat's percentile. Each cell is `p50 / p95` in microseconds.
-
-## 1. Benefits of the SHM buffer backend
-
-### Baseline across all paths
+## Baseline across all paths
 
 | Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 64 B | 643.1 / 694.0 | 952.6 / 1,036.6 | 41.5 / 94.0 | 46.6 / 48.0 |
-| 1 KiB | 626.2 / 703.8 | 938.0 / 1,038.4 | 44.9 / 96.2 | 45.7 / 48.4 |
-| 4 KiB | 632.0 / 709.1 | 924.1 / 1,052.0 | 43.7 / 90.0 | 45.9 / 48.3 |
-| 16 KiB | 667.9 / 725.5 | 970.6 / 1,047.9 | 41.6 / 85.2 | 44.9 / 48.4 |
-| 64 KiB | 697.4 / 747.1 | 978.5 / 1,047.8 | 43.4 / 86.4 | 44.2 / 48.2 |
-| 256 KiB | 1,062.4 / 1,128.8 | 1,020.6 / 1,093.2 | 44.8 / 47.6 | 46.8 / 50.6 |
-| 1 MiB | 2,433.3 / 13,675.6 | 1,185.4 / 1,289.1 | 47.4 / 50.1 | 50.0 / 55.3 |
-| 4 MiB | 15,958.3 / 16,229.9 | 1,719.0 / 1,833.2 | 47.1 / 54.9 | 55.9 / 73.9 |
-| 16 MiB | 14,769.5 / 15,218.9 | 2,283.5 / 2,773.0 | 11.7 / 32.4 | 50.4 / 51.9 |
+| 64 B | 636.3 / 726.9 | 951.4 / 1,091.2 | 144.5 / 179.9 | 114.8 / 173.8 |
+| 1 KiB | 641.5 / 719.7 | 942.3 / 1,060.1 | 120.4 / 174.2 | 115.7 / 162.4 |
+| 4 KiB | 667.8 / 753.0 | 927.2 / 1,045.0 | 118.4 / 166.0 | 121.5 / 169.3 |
+| 16 KiB | 677.1 / 758.9 | 921.5 / 1,057.8 | 123.4 / 176.0 | 118.3 / 167.6 |
+| 64 KiB | 687.6 / 776.9 | 958.8 / 1,107.0 | 124.6 / 174.8 | 123.1 / 168.2 |
+| 256 KiB | 1,009.1 / 1,153.5 | 1,033.0 / 1,128.8 | 113.8 / 138.6 | 116.1 / 136.5 |
+| 1 MiB | 11,700.0 / 13,774.4 | 1,172.9 / 1,298.2 | 118.4 / 128.7 | 119.8 / 132.9 |
+| 4 MiB | 15,407.8 / 16,025.3 | 1,700.0 / 1,822.6 | 108.2 / 117.2 | 131.3 / 152.5 |
+| 16 MiB | 14,879.5 / 16,019.0 | 2,289.5 / 2,718.5 | 37.1 / 78.9 | 112.7 / 127.5 |
 
-Intra-process results remain the fastest overall, generally around 40–60 µs
-p50. The SHM/memfd intra-process path is slightly slower than CPU at many
-sizes; for example, at 4 MiB the p50 is 55.9 µs versus 47.1 µs. This supports
-the expected small bookkeeping overhead, although the difference is small
-relative to end-to-end scheduling variability.
+The baseline plot shows that the CPU path enters a multi-millisecond regime at
+1 MiB and above. SHM avoids that regime, but its latency is not constant: the
+baseline SHM p50 increases from 1,172.9 µs at 1 MiB to 2,289.5 µs at 16 MiB.
+This is an observed size-dependent cost on the end-to-end path; it should not
+be interpreted as proof of a payload-sized copy on the SHM wire path.
 
-For inter-process communication, the CPU path changes to a much slower regime
-at multi-megabyte sizes. At 16 MiB, inter-process SHM is 6.5× faster than CPU
-by p50 (2.28 ms versus 14.77 ms). At 4 MiB the advantage is 9.3×.
+### Inter-process SHM-specific fixed overhead
 
-The SHM path is therefore beneficial for large same-host buffers: the
-subscriber can access the shared payload without moving the full payload
-through the normal CPU-backed path. Baseline SHM is not constant-time,
-however; its large-buffer publish path is the subject of the next section.
+The Intra SHM result is an important control. It is close to Intra CPU, so the
+local memfd buffer operations are not the main reason that small Inter SHM
+messages are slower. In the intra-process path, the RMW descriptor path is
+bypassed: the shared pointer can be delivered directly. In the inter-process
+path, `create_descriptor_with_endpoint()` is used to prepare the memfd
+descriptor, followed by descriptor serialization and the corresponding
+`from_descriptor_with_endpoint()` processing on the subscriber side.
 
-## 2. Large-buffer publish behavior with the SHM backend
+The following difference-in-differences estimates the residual SHM-specific
+inter-process cost:
 
-### Observed problem
+```text
+(Inter SHM - Intra SHM) - (Inter CPU - Intra CPU)
+```
 
-Baseline inter-process SHM p50 increases with payload size:
-
-| Payload | 1 MiB | 4 MiB | 16 MiB |
+| Payload | SHM inter-process difference | CPU inter-process difference | Residual SHM-specific difference |
 |---:|---:|---:|---:|
-| Baseline inter-process SHM p50 | 1,185.4 µs | 1,719.0 µs | 2,283.5 µs |
+| 64 B | 837 µs | 492 µs | 345 µs |
+| 1 KiB | 827 µs | 521 µs | 306 µs |
+| 4 KiB | 806 µs | 549 µs | 256 µs |
+| 16 KiB | 803 µs | 554 µs | 250 µs |
+| 64 KiB | 836 µs | 563 µs | 273 µs |
 
-This size dependence is consistent with avoidable work in the RMW publish path,
-where a temporary serialization buffer is prepared even when the downstream
-SHM endpoint can use shared storage.
+This leaves approximately 0.24--0.34 ms of fixed overhead for small
+inter-process SHM messages. It is reasonable to attribute this residual to
+the descriptor path introduced by `create_descriptor_with_endpoint()` and its
+subscriber-side counterpart, including descriptor validation, cache lookup,
+reader management, and descriptor serialization/deserialization. It should
+not be interpreted as an `mmap()` on every message: the imported memfd mapping
+is cached, and FD transfer plus `mmap()` occur only on a cache miss.
 
-### Patch comparison on the target path
+The publisher-side block lookup, IPC registration, UID assignment, and
+descriptor construction are inter-process SHM path operations; they are not
+performed by the intra-process shared-pointer path. At larger payloads, the
+CPU path's serialization and receive-side costs dominate this fixed SHM
+descriptor overhead.
 
-| Payload | Baseline | `unique_ptr` | `lazy` | `reserve` |
+![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
+
+The same four-path p50 and average view is also available for each patched
+variant. Solid lines are p50 values calculated from all 100 raw samples for
+each size/path case; dashed lines are the arithmetic average of those samples.
+The average is included because the inter-process CPU path is clearly bimodal.
+
+- [`unique_ptr`](./figures/unique_ptr-path-latency.png)
+- [`lazy`](./figures/lazy-path-latency.png)
+- [`reserve`](./figures/reserve-path-latency.png)
+
+## Variant results across all paths
+
+### `unique_ptr`
+
+| Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---:|---:|---:|---:|---:|
-| 1 MiB | 1,185.4 / 1,289.1 | 987.9 / 1,070.7 | 951.1 / 1,045.9 | 975.8 / 1,054.5 |
-| 4 MiB | 1,719.0 / 1,833.2 | 885.7 / 1,004.1 | 892.4 / 964.7 | 923.5 / 1,035.7 |
-| 16 MiB | 2,283.5 / 2,773.0 | 740.6 / 791.6 | 715.3 / 793.2 | 713.3 / 790.0 |
+| 64 B | 664.2 / 747.6 | 933.4 / 1,069.6 | 129.4 / 169.7 | 118.7 / 157.3 |
+| 1 KiB | 653.2 / 743.5 | 947.7 / 1,069.2 | 123.7 / 173.4 | 118.8 / 169.5 |
+| 4 KiB | 648.8 / 746.6 | 973.4 / 1,066.2 | 118.4 / 174.1 | 122.8 / 166.4 |
+| 16 KiB | 706.6 / 789.1 | 937.4 / 1,057.2 | 120.7 / 174.8 | 116.4 / 154.4 |
+| 64 KiB | 691.2 / 779.7 | 918.4 / 1,040.9 | 137.3 / 171.9 | 120.6 / 170.1 |
+| 256 KiB | 1,015.7 / 1,143.6 | 937.6 / 1,046.8 | 114.4 / 140.0 | 117.9 / 129.1 |
+| 1 MiB | 11,528.3 / 13,607.7 | 943.2 / 1,057.1 | 115.7 / 128.2 | 120.4 / 134.8 |
+| 4 MiB | 13,639.7 / 14,052.2 | 897.6 / 1,021.2 | 112.7 / 137.1 | 133.8 / 158.3 |
+| 16 MiB | 13,363.8 / 15,714.3 | 739.8 / 816.6 | 41.0 / 79.3 | 115.0 / 127.5 |
 
-At 16 MiB, the p50 reduction versus baseline is 67.6% for `unique_ptr`, 68.7%
-for `lazy`, and 68.8% for `reserve`. The patched results are approximately
-0.7–1.0 ms over the 1–16 MiB range, much closer to constant-time behavior than
-the baseline.
+### `lazy`
 
-The rerun therefore confirms the large-buffer publish problem and confirms that
-all three alternatives address its dominant cost. It does not establish that
-one patch is universally best: `lazy` and `reserve` are marginally lower at
-16 MiB, while the differences between patched variants are small compared with
-the total end-to-end path.
+| Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
+|---:|---:|---:|---:|---:|
+| 64 B | 680.1 / 754.4 | 944.0 / 1,073.8 | 120.7 / 174.7 | 118.2 / 160.4 |
+| 1 KiB | 633.8 / 741.7 | 942.1 / 1,059.1 | 121.1 / 171.6 | 116.1 / 151.6 |
+| 4 KiB | 666.1 / 752.3 | 956.8 / 1,071.7 | 115.9 / 169.6 | 118.5 / 167.1 |
+| 16 KiB | 701.8 / 792.3 | 936.0 / 1,044.9 | 153.8 / 190.3 | 116.7 / 150.6 |
+| 64 KiB | 682.0 / 786.6 | 925.1 / 1,091.9 | 115.3 / 177.4 | 114.2 / 139.0 |
+| 256 KiB | 1,076.0 / 1,139.8 | 937.4 / 1,054.9 | 114.6 / 136.5 | 117.1 / 129.8 |
+| 1 MiB | 13,005.8 / 13,638.0 | 935.6 / 1,050.5 | 117.3 / 130.2 | 120.9 / 133.2 |
+| 4 MiB | 15,374.4 / 16,209.4 | 915.6 / 1,049.2 | 113.4 / 140.0 | 133.7 / 155.0 |
+| 16 MiB | 14,786.7 / 15,270.8 | 727.6 / 805.7 | 41.6 / 79.6 | 113.3 / 124.8 |
 
-## 3. `rmw_fastrtps_cpp` fix and regression check
+### `reserve`
 
-The following ratios compare each variant's median p50 at each size with the
-baseline, then take the geometric mean over the nine sizes. Counts are
-`faster / within ±2% / slower` and are descriptive, not significance tests.
+| Payload | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
+|---:|---:|---:|---:|---:|
+| 64 B | 640.2 / 727.0 | 966.0 / 1,067.9 | 137.7 / 184.4 | 113.0 / 155.1 |
+| 1 KiB | 647.7 / 745.7 | 891.5 / 1,059.7 | 134.2 / 171.5 | 115.8 / 153.7 |
+| 4 KiB | 644.4 / 747.9 | 908.5 / 1,046.0 | 130.9 / 171.6 | 116.3 / 153.8 |
+| 16 KiB | 716.7 / 791.7 | 937.8 / 1,056.0 | 134.9 / 180.1 | 115.6 / 165.3 |
+| 64 KiB | 668.3 / 740.4 | 895.9 / 1,053.1 | 118.3 / 166.3 | 116.1 / 152.6 |
+| 256 KiB | 1,047.2 / 1,164.0 | 870.7 / 1,030.6 | 115.0 / 157.7 | 115.5 / 127.0 |
+| 1 MiB | 13,139.5 / 13,585.6 | 923.7 / 1,056.9 | 114.8 / 128.9 | 119.7 / 137.4 |
+| 4 MiB | 13,655.4 / 13,967.0 | 895.1 / 989.8 | 106.7 / 131.3 | 133.0 / 153.5 |
+| 16 MiB | 13,282.3 / 13,502.3 | 720.3 / 806.3 | 69.0 / 78.8 | 115.7 / 129.2 |
+
+The CPU regression-control results do not show a consistent patch effect. The
+SHM results do: at 16 MiB, all three patches reduce p50 by about two thirds.
+The geometric-mean p50 ratios versus baseline are:
 
 | Variant | Inter CPU | Inter SHM | Intra CPU | Intra SHM |
 |---|---:|---:|---:|---:|
-| `unique_ptr` | 0.975×; 5 / 2 / 2 | 0.787×; 7 / 2 / 0 | 0.990×; 4 / 3 / 2 | 0.988×; 4 / 4 / 1 |
-| `lazy` | 1.200×; 1 / 7 / 1 | 0.787×; 7 / 1 / 1 | 1.011×; 2 / 4 / 3 | 0.999×; 2 / 5 / 2 |
-| `reserve` | 0.985×; 3 / 3 / 3 | 0.787×; 7 / 2 / 0 | 0.985×; 4 / 4 / 1 | 0.973×; 5 / 4 / 0 |
+| `unique_ptr` | 0.983× | 0.794× | 1.013× | 1.011× |
+| `lazy` | 1.027× | 0.793× | 1.012× | 0.996× |
+| `reserve` | 0.992× | 0.773× | 1.091× | 0.988× |
 
-The direct target path, inter-process SHM, improves consistently: every patch
-has a geometric-mean p50 of about 0.79× baseline, and none is slower than
-baseline at more than two percent at any of the nine size points except one
-`lazy` point. The large-buffer table shows why this is the important result.
+![Inter-process SHM patch comparison](./figures/inter-shm-variant-comparison.png)
 
-The CPU inter-process and both intra-process columns are regression controls.
-They do not show a systematic degradation across the alternatives. The
-`lazy` CPU inter-process ratio is elevated by run-to-run variation in this
-rerun, despite seven of its nine size points being within two percent of
-baseline; it is not evidence that the patch changes the CPU path's intended
-large-buffer behavior.
+![Inter-process CPU patch comparison](./figures/inter-cpu-variant-comparison.png)
 
-## Validation and limitations
+## 1 MiB raw latency distributions
 
-All four copied CSV files contain 180 rows, giving 720 rows in total. Every
-row reports `received=30` and `measured=20`, so the requested message-count and
-warm-up configuration is present throughout the dataset. Every
-`intra_process_va` row also reports `va_matches=30`, confirming the expected
-publisher/subscriber address sharing for all 30 messages. The raw files are:
+The following figures are histograms of the 100 raw e2e latency samples for
+each variant: five repeats with 20 measured samples per repeat. The bins are
+250 µs wide and both figures use the same 0--18,000 µs x-axis. Dashed lines
+show the raw-sample median.
 
-- [baseline.csv](./benchmark-results-16way/baseline.csv)
-- [unique_ptr.csv](./benchmark-results-16way/unique_ptr.csv)
-- [lazy.csv](./benchmark-results-16way/lazy.csv)
-- [reserve.csv](./benchmark-results-16way/reserve.csv)
+![1 MiB inter-process CPU latency frequency distribution](./figures/1m-inter-cpu-latency-distribution.png)
 
-This remains an end-to-end measurement on one host. DDS discovery, executor
-scheduling, and CPU affinity can affect the reported percentiles. The result
-supports the performance direction and the absence of an obvious regression;
-it is not a substitute for focused correctness tests, concurrent-publish
-tests, or component-level allocation/serialization timing.
+The CPU histogram makes the two regimes visible. Most samples are around
+2.3--2.5 ms or 13--14 ms, with the relative frequency varying by variant.
+This is why the 1 MiB p50 is not a reliable description of one fixed latency
+mode. The p95 remains in the slower regime for every variant.
 
-## Reproduction
+![1 MiB inter-process SHM latency frequency distribution](./figures/1m-inter-shm-latency-distribution.png)
 
-The 720-case orchestration script is installed as
-`run_16way_benchmark.py`. It starts from `origin/lyrical`, applies each patch
-independently, builds separate Release prefixes, runs all four paths, and
-restores the original `rmw_fastrtps` checkout. The default invocation is:
+The SHM histogram is concentrated around 0.8--1.3 ms. The baseline is shifted
+to the right, while the patched variants overlap around 0.9--1.0 ms.
+
+For a direct baseline-only comparison, the two inter-process paths are shown
+together below with the same bins and x-axis. Dashed lines indicate the raw
+sample median (p50).
+
+![Baseline Inter CPU and Inter SHM latency frequency distribution](./figures/1m-baseline-inter-latency-distribution.png)
+
+### 1 MiB publish-side timing
+
+The raw publish timing supports the interpretation that the patch changes work
+inside the publisher path, not merely subscriber scheduling:
+
+| Backend / metric | Baseline | `unique_ptr` | `lazy` | `reserve` |
+|---|---:|---:|---:|---:|
+| CPU `publish()` p50 / p95 | 1,589.3 / 1,801.1 µs | 1,507.6 / 1,740.2 µs | 1,499.0 / 1,731.8 µs | 1,497.3 / 1,756.1 µs |
+| SHM `publish()` p50 / p95 | 672.6 / 754.7 µs | 423.4 / 477.4 µs | 421.5 / 474.4 µs | 410.1 / 476.4 µs |
+| SHM e2e p50 / p95 | 1,172.9 / 1,298.2 µs | 943.2 / 1,057.1 µs | 935.6 / 1,050.5 µs | 923.7 / 1,056.9 µs |
+
+This does not yet identify every allocation or serialization operation that
+causes the baseline cost. It does show that the reduction is already visible
+around `publish()`, and that the e2e improvement follows the same direction.
+
+The publish-only raw distributions are shown below. These use the same
+four-row layout and common 100 µs bins; their x-axis is shared between CPU and
+SHM and spans 0--4,000 µs.
+
+![1 MiB inter-process CPU publish duration frequency distribution](./figures/1m-inter-cpu-publish-duration-distribution.png)
+
+![1 MiB inter-process SHM publish duration frequency distribution](./figures/1m-inter-shm-publish-duration-distribution.png)
+
+## Limitations and interpretation
+
+The SHM path is not demonstrated to be strictly constant-time with respect to
+payload size. The safe conclusion is narrower: the patch removes most of the
+observed large-buffer growth in this benchmark. The remaining end-to-end
+latency includes DDS discovery, executor scheduling, queueing, and process
+startup effects.
+
+The 1 MiB histograms are raw e2e samples, but the tables still use the
+benchmark's percentile calculation. With 20 samples per repeat, p95 and p99
+use the same order statistic, so they should not be treated as independent
+tail metrics. The raw CSV files should be preferred for future distribution
+analysis.
+
+## Reproduction and data
+
+The rerun summary files are:
+
+- [baseline.csv](./benchmark-results-16way-rerun/baseline.csv)
+- [unique_ptr.csv](./benchmark-results-16way-rerun/unique_ptr.csv)
+- [lazy.csv](./benchmark-results-16way-rerun/lazy.csv)
+- [reserve.csv](./benchmark-results-16way-rerun/reserve.csv)
+
+The raw files are in
+[`./benchmark-results-16way-rerun/raw/`](./benchmark-results-16way-rerun/raw/).
+
+Figures can be regenerated from the rerun with the workspace virtual
+environment:
+
+```bash
+source .venv/bin/activate
+python tools/plot_benchmark_report.py \
+  --data-dir benchmark-results-16way-rerun
+```
+
+The 16-way rerun itself is orchestrated with:
 
 ```bash
 source ~/ros2_lyrical/install/setup.bash
