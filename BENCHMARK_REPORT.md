@@ -141,6 +141,12 @@ communication enters a millisecond-scale regime for multi-megabyte payloads.*
 `rmw_fastrtps_cpp` alternatives. The patched paths flatten the large-buffer
 increase visible in the baseline.*
 
+![Inter-process CPU patch comparison](./figures/inter-cpu-variant-comparison.png)
+
+*Figure 3. Inter-process CPU p50 and p95 for the same four variants. The
+large-buffer increase remains visible because this is the CPU-backed control
+path.*
+
 ## 3. `rmw_fastrtps_cpp` fix and regression check
 
 The following ratios compare each variant's median p50 at each size with the

@@ -108,11 +108,11 @@ def plot_baseline_paths(results, output_dir):
     save_figure(figure, output_dir, "baseline-path-latency")
 
 
-def plot_inter_shm_variants(results, output_dir):
+def plot_inter_variant_comparison(results, output_dir, backend, backend_label, name):
     figure, axis = plt.subplots(figsize=(11, 6.5))
     for variant in VARIANTS:
-        p50 = series(results, variant, "inter_process", "memfd", "p50_us")
-        p95 = series(results, variant, "inter_process", "memfd", "p95_us")
+        p50 = series(results, variant, "inter_process", backend, "p50_us")
+        p95 = series(results, variant, "inter_process", backend, "p95_us")
         color = VARIANT_COLORS[variant]
         axis.plot(
             SIZES, p50, marker="o", linewidth=2.2, color=color,
@@ -124,10 +124,10 @@ def plot_inter_shm_variants(results, output_dir):
     axis.set_ylim(bottom=500)
     axis.set_xlabel("Payload size")
     axis.set_ylabel("Latency (µs)")
-    axis.set_title("Inter-process SHM latency: patch comparison")
+    axis.set_title(f"Inter-process {backend_label} latency: patch comparison")
     axis.legend(title="p50 (solid); p95 (dashed)", ncol=2, frameon=True)
     figure.tight_layout()
-    save_figure(figure, output_dir, "inter-shm-variant-comparison")
+    save_figure(figure, output_dir, name)
 
 
 def main():
@@ -156,7 +156,12 @@ def main():
         "axes.facecolor": "#FFFFFF",
     })
     plot_baseline_paths(results, args.output_dir)
-    plot_inter_shm_variants(results, args.output_dir)
+    plot_inter_variant_comparison(
+        results, args.output_dir, "memfd", "SHM", "inter-shm-variant-comparison"
+    )
+    plot_inter_variant_comparison(
+        results, args.output_dir, "cpu", "CPU", "inter-cpu-variant-comparison"
+    )
     print(f"wrote figures to {args.output_dir}")
 
 
