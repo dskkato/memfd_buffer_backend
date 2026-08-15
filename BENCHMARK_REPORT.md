@@ -23,6 +23,12 @@ The rerun confirms the previous conclusion:
   strongest effect remains localized to inter-process publication through the
   non-CPU backend.
 
+The figures below summarize the same median-across-repeats data used in the
+tables. Solid lines show p50 latency; dashed lines show p95 where both are
+shown. The x-axis is logarithmic in payload size, and latency plots use a
+logarithmic y-axis so that intra-process and inter-process paths can be read in
+the same figure.
+
 ## Measurement design
 
 The matrix contains:
@@ -121,6 +127,25 @@ one patch is universally best: `lazy` and `reserve` are marginally lower at
 16 MiB, while the differences between patched variants are small compared with
 the total end-to-end path.
 
+### Figures
+
+![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
+
+*Figure 1. Baseline p50 and p95 latency across the four paths. Intra-process
+communication stays in the tens-of-microseconds range, while inter-process CPU
+communication enters a millisecond-scale regime for multi-megabyte payloads.*
+
+![Inter-process SHM patch comparison](./figures/inter-shm-variant-comparison.png)
+
+*Figure 2. Inter-process SHM p50 and p95 for the baseline and the three
+`rmw_fastrtps_cpp` alternatives. The patched paths flatten the large-buffer
+increase visible in the baseline.*
+
+![Inter-process SHM speedup over CPU](./figures/inter-shm-speedup.png)
+
+*Figure 3. Inter-process p50 speedup, computed as CPU latency divided by SHM
+latency. Values above 1× indicate a benefit from the memfd-backed path.*
+
 ## 3. `rmw_fastrtps_cpp` fix and regression check
 
 The following ratios compare each variant's median p50 at each size with the
@@ -157,6 +182,13 @@ publisher/subscriber address sharing for all 30 messages. The raw files are:
 - [unique_ptr.csv](./benchmark-results-16way/unique_ptr.csv)
 - [lazy.csv](./benchmark-results-16way/lazy.csv)
 - [reserve.csv](./benchmark-results-16way/reserve.csv)
+
+The figures can be regenerated with the workspace virtual environment:
+
+```bash
+source .venv/bin/activate
+python src/memfd_buffer_backend/tools/plot_benchmark_report.py
+```
 
 This remains an end-to-end measurement on one host. DDS discovery, executor
 scheduling, and CPU affinity can affect the reported percentiles. The result
