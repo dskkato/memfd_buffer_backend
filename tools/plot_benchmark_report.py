@@ -217,7 +217,7 @@ def plot_baseline_inter_histogram(raw_results, output_dir, x_limit):
             linewidth=0.5,
         )
         axis.axvline(
-            mean(values),
+            median(values),
             color=PATH_COLORS[backend_label],
             linestyle="--",
             linewidth=1.4,
@@ -228,7 +228,7 @@ def plot_baseline_inter_histogram(raw_results, output_dir, x_limit):
         axis.set_axisbelow(True)
         axis.set_ylabel("Frequency (samples)")
         axis.set_title(
-            f"{backend_label} baseline (n={len(values)}; dashed line = average)",
+            f"{backend_label} baseline (n={len(values)}; dashed line = median)",
             loc="left",
             fontsize=10,
         )

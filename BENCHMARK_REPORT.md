@@ -199,7 +199,7 @@ to the right, while the patched variants overlap around 0.9--1.0 ms.
 
 For a direct baseline-only comparison, the two inter-process paths are shown
 together below with the same bins and x-axis. Dashed lines indicate the raw
-sample arithmetic average.
+sample median (p50).
 
 ![Baseline Inter CPU and Inter SHM latency frequency distribution](./figures/1m-baseline-inter-latency-distribution.png)
 
