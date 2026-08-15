@@ -69,6 +69,45 @@ baseline SHM p50 increases from 1,161.7 µs at 1 MiB to 2,284.7 µs at 16 MiB.
 This is an observed size-dependent cost on the end-to-end path; it should not
 be interpreted as proof of a payload-sized copy on the SHM wire path.
 
+### Inter-process SHM-specific fixed overhead
+
+The Intra SHM result is an important control. It is close to Intra CPU, so the
+local memfd buffer operations are not the main reason that small Inter SHM
+messages are slower. In the intra-process path, the RMW descriptor path is
+bypassed: the shared pointer can be delivered directly. In the inter-process
+path, `create_descriptor_with_endpoint()` is used to prepare the memfd
+descriptor, followed by descriptor serialization and the corresponding
+`from_descriptor_with_endpoint()` processing on the subscriber side.
+
+The following difference-in-differences estimates the residual SHM-specific
+inter-process cost:
+
+```text
+(Inter SHM - Intra SHM) - (Inter CPU - Intra CPU)
+```
+
+| Payload | SHM inter-process difference | CPU inter-process difference | Residual SHM-specific difference |
+|---:|---:|---:|---:|
+| 64 B | 828 µs | 491 µs | 337 µs |
+| 1 KiB | 826 µs | 521 µs | 305 µs |
+| 4 KiB | 787 µs | 543 µs | 243 µs |
+| 16 KiB | 802 µs | 545 µs | 257 µs |
+| 64 KiB | 838 µs | 550 µs | 288 µs |
+
+This leaves approximately 0.24--0.34 ms of fixed overhead for small
+inter-process SHM messages. It is reasonable to attribute this residual to
+the descriptor path introduced by `create_descriptor_with_endpoint()` and its
+subscriber-side counterpart, including descriptor validation, cache lookup,
+reader management, and descriptor serialization/deserialization. It should
+not be interpreted as an `mmap()` on every message: the imported memfd mapping
+is cached, and FD transfer plus `mmap()` occur only on a cache miss.
+
+The publisher-side block lookup, IPC registration, UID assignment, and
+descriptor construction are inter-process SHM path operations; they are not
+performed by the intra-process shared-pointer path. At larger payloads, the
+CPU path's serialization and receive-side costs dominate this fixed SHM
+descriptor overhead.
+
 ![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
 
 The same four-path p50 and average view is also available for each patched
