@@ -195,6 +195,52 @@ def plot_one_mib_histogram(
     save_figure(figure, output_dir, name)
 
 
+def plot_baseline_inter_histogram(raw_results, output_dir, x_limit):
+    figure, axes = plt.subplots(
+        nrows=2,
+        ncols=1,
+        sharex=True,
+        figsize=(10.5, 6.8),
+    )
+    bins = range(0, x_limit + 250, 250)
+    for axis, backend, backend_label in zip(
+        axes, ("cpu", "memfd"), ("Inter CPU", "Inter SHM")
+    ):
+        rows = raw_results[("baseline", "inter_process", backend, ONE_MIB)]
+        values = [row["e2e_latency_us"] for row in rows]
+        axis.hist(
+            values,
+            bins=bins,
+            color=PATH_COLORS[backend_label],
+            alpha=0.55,
+            edgecolor=PATH_COLORS[backend_label],
+            linewidth=0.5,
+        )
+        axis.axvline(
+            mean(values),
+            color=PATH_COLORS[backend_label],
+            linestyle="--",
+            linewidth=1.4,
+            alpha=0.85,
+        )
+        axis.set_xlim(0, x_limit)
+        axis.grid(True, axis="both", color="#D8DEE9", linewidth=0.7)
+        axis.set_axisbelow(True)
+        axis.set_ylabel("Frequency (samples)")
+        axis.set_title(
+            f"{backend_label} baseline (n={len(values)}; dashed line = average)",
+            loc="left",
+            fontsize=10,
+        )
+    axes[-1].set_xticks(range(0, x_limit + 1, 2000))
+    axes[-1].set_xlabel(
+        "End-to-end latency (µs); common x-axis and 250 µs bins"
+    )
+    figure.suptitle("1 MiB baseline inter-process latency frequency distribution")
+    figure.tight_layout(rect=(0, 0, 1, 0.95))
+    save_figure(figure, output_dir, "1m-baseline-inter-latency-distribution")
+
+
 def series(results, variant, communication, backend, metric):
     return [
         results[(variant, communication, backend, size)][metric]
@@ -346,6 +392,7 @@ def main():
         "End-to-end latency (µs)",
         "latency",
     )
+    plot_baseline_inter_histogram(raw_results, args.output_dir, e2e_x_limit)
     publish_x_limit = distribution_x_limit(raw_results, "publish_duration_us", 500)
     plot_one_mib_histogram(
         raw_results,
