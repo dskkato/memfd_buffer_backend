@@ -12,7 +12,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 
 
 VARIANTS = ("baseline", "unique_ptr", "lazy", "reserve")
@@ -43,16 +42,6 @@ PATH_COLORS = {
 SIZES = (64, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216)
 ONE_MIB = 1048576
 METRICS = ("p50_us", "p95_us", "p99_us")
-METRIC_LABELS = {
-    "p50_us": "p50",
-    "p95_us": "p95",
-    "p99_us": "p99",
-}
-METRIC_MARKERS = {
-    "p50_us": "o",
-    "p95_us": "s",
-    "p99_us": "^",
-}
 
 
 def size_label(size):
@@ -100,96 +89,86 @@ def aggregate_results(repeat_results):
     }
 
 
-def distribution_x_limit(repeat_results):
+def read_raw_results(data_dir):
+    values = defaultdict(list)
+    raw_dir = data_dir / "raw"
+    for variant in VARIANTS:
+        path = raw_dir / f"{variant}.csv"
+        if not path.exists():
+            raise RuntimeError(f"missing raw timing file: {path}")
+        with path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        if len(rows) != 3600:
+            raise RuntimeError(f"expected 3600 rows in {path}, found {len(rows)}")
+        for row in rows:
+            if row["variant"] != variant:
+                raise RuntimeError(
+                    f"variant mismatch in {path}: {row['variant']} != {variant}"
+                )
+            key = (
+                row["variant"],
+                row["communication"],
+                row["backend"],
+                int(row["size_bytes"]),
+            )
+            values[key].append(
+                {
+                    "publish_duration_us": int(row["publish_duration_ns"]) / 1000.0,
+                    "e2e_latency_us": int(row["e2e_latency_ns"]) / 1000.0,
+                }
+            )
+    return dict(values)
+
+
+def distribution_x_limit(raw_results):
     values = [
-        row[metric]
+        row["e2e_latency_us"]
         for variant in VARIANTS
         for backend in ("cpu", "memfd")
-        for row in repeat_results[(variant, "inter_process", backend, ONE_MIB)]
-        for metric in METRICS
+        for row in raw_results[(variant, "inter_process", backend, ONE_MIB)]
     ]
     tick_step = 2000
     return max(tick_step, math.ceil(max(values) * 1.05 / tick_step) * tick_step)
 
 
-def plot_one_mib_distribution(
-    repeat_results, output_dir, backend, backend_label, name, x_limit
+def plot_one_mib_histogram(
+    raw_results, output_dir, backend, backend_label, name, x_limit
 ):
     figure, axis = plt.subplots(figsize=(10.5, 5.8))
-    metric_offsets = {"p50_us": -0.2, "p95_us": 0.0, "p99_us": 0.2}
-    repeat_jitter = (-0.055, -0.028, 0.0, 0.028, 0.055)
-
-    for variant_index, variant in enumerate(VARIANTS):
-        rows = repeat_results[(variant, "inter_process", backend, ONE_MIB)]
+    bins = range(0, x_limit + 250, 250)
+    for variant in VARIANTS:
+        rows = raw_results[(variant, "inter_process", backend, ONE_MIB)]
         color = VARIANT_COLORS[variant]
-        medians = []
-        median_positions = []
-        for metric in METRICS:
-            values = [row[metric] for row in rows]
-            y = variant_index + metric_offsets[metric]
-            axis.scatter(
-                values,
-                [y + jitter for jitter in repeat_jitter],
-                color=color,
-                alpha=0.28,
-                s=24,
-                linewidths=0,
-                zorder=2,
-            )
-            medians.append(median(values))
-            median_positions.append(y)
-            axis.scatter(
-                [medians[-1]],
-                [y],
-                marker=METRIC_MARKERS[metric],
-                color=color,
-                edgecolors="#2E3440",
-                linewidths=0.8,
-                s=78,
-                zorder=4,
-            )
-        axis.plot(
-            medians,
-            median_positions,
+        values = [row["e2e_latency_us"] for row in rows]
+        axis.hist(
+            values,
+            bins=bins,
             color=color,
-            alpha=0.45,
+            alpha=0.35,
+            edgecolor=color,
+            linewidth=0.5,
+            label=f"{VARIANT_LABELS[variant]} (n={len(values)})",
+        )
+        axis.axvline(
+            median(values),
+            color=color,
+            linestyle="--",
             linewidth=1.4,
-            zorder=3,
+            alpha=0.85,
         )
 
     axis.set_xlim(0, x_limit)
     axis.set_xticks(range(0, x_limit + 1, 2000))
-    axis.set_yticks(range(len(VARIANTS)))
-    axis.set_yticklabels([VARIANT_LABELS[variant] for variant in VARIANTS])
-    axis.invert_yaxis()
-    axis.grid(True, axis="x", color="#D8DEE9", linewidth=0.7)
-    axis.grid(True, axis="y", color="#E5E9F0", linewidth=0.5)
+    axis.grid(True, axis="both", color="#D8DEE9", linewidth=0.7)
     axis.set_axisbelow(True)
-    axis.set_xlabel("Latency (µs); shared x-axis across CPU and SHM plots")
-    axis.set_ylabel("Variant")
-    axis.set_title(f"1 MiB inter-process {backend_label} latency distribution")
-    metric_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker=METRIC_MARKERS[metric],
-            color="#4C566A",
-            linestyle="None",
-            markersize=7,
-            label=METRIC_LABELS[metric],
-        )
-        for metric in METRICS
-    ]
-    axis.legend(
-        handles=metric_handles,
-        title="Reported percentile",
-        loc="lower right",
-        frameon=True,
-    )
+    axis.set_xlabel("End-to-end latency (µs); shared x-axis across CPU and SHM plots")
+    axis.set_ylabel("Frequency (samples)")
+    axis.set_title(f"1 MiB inter-process {backend_label} latency frequency distribution")
+    axis.legend(title="Variant; dashed line = median", frameon=True)
     figure.text(
         0.01,
         0.01,
-        "Faint points: five repeats; bold markers: median across repeats",
+        "Raw measured samples: five repeats × 20 samples per variant",
         ha="left",
         va="bottom",
         fontsize=8,
@@ -280,6 +259,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     repeat_results = read_repeat_results(args.data_dir)
     results = aggregate_results(repeat_results)
+    raw_results = read_raw_results(args.data_dir)
     expected = len(VARIANTS) * len(PATHS) * len(SIZES)
     if len(results) != expected:
         raise RuntimeError(f"expected {expected} aggregated points, found {len(results)}")
@@ -299,17 +279,17 @@ def main():
     plot_inter_variant_comparison(
         results, args.output_dir, "cpu", "CPU", "inter-cpu-variant-comparison"
     )
-    x_limit = distribution_x_limit(repeat_results)
-    plot_one_mib_distribution(
-        repeat_results,
+    x_limit = distribution_x_limit(raw_results)
+    plot_one_mib_histogram(
+        raw_results,
         args.output_dir,
         "cpu",
         "CPU",
         "1m-inter-cpu-latency-distribution",
         x_limit,
     )
-    plot_one_mib_distribution(
-        repeat_results,
+    plot_one_mib_histogram(
+        raw_results,
         args.output_dir,
         "memfd",
         "SHM",
