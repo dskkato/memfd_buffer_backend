@@ -189,6 +189,25 @@ increase visible in the baseline.*
 large-buffer increase remains visible because this is the CPU-backed control
 path.*
 
+![1 MiB inter-process CPU latency distribution](./figures/1m-inter-cpu-latency-distribution.png)
+
+*Figure 4. Inter-process CPU latency at 1 MiB. Faint points are the five
+repeat-level reported percentiles, and bold markers are their median. The
+different p50 locations across repeats make the bimodal behavior visible;
+p95/p99 remain near the slower regime for all variants.*
+
+![1 MiB inter-process SHM latency distribution](./figures/1m-inter-shm-latency-distribution.png)
+
+*Figure 5. Inter-process SHM latency at 1 MiB, using the same x-axis limits as
+Figure 4. The distribution is concentrated near 1 ms, with substantially less
+repeat-to-repeat spread than the CPU path.*
+
+The CSV files contain only the reported p50/p95/p99 for each repeat, rather
+than the 20 individual measured latencies. Therefore Figures 4 and 5 show the
+distribution of repeat-level percentile reports, not a raw-sample histogram
+or violin plot. With 20 measured samples, p99 uses the same order statistic as
+p95 in the benchmark implementation, so those markers can overlap.
+
 ## 3. `rmw_fastrtps_cpp` fix and regression check
 
 The following ratios compare each variant's median p50 at each size with the
