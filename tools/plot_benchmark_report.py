@@ -311,7 +311,7 @@ def plot_inter_variant_comparison(results, output_dir, backend, backend_label, n
 def main():
     package_dir = Path(__file__).resolve().parents[1]
     workspace_dir = package_dir.parents[1]
-    default_data_dir = workspace_dir / "src/memfd_buffer_backend/benchmark-results-16way"
+    default_data_dir = package_dir / "benchmark-results-16way-rerun"
     default_output_dir = workspace_dir / "src/memfd_buffer_backend/figures"
     parser = argparse.ArgumentParser()
     parser.add_argument(

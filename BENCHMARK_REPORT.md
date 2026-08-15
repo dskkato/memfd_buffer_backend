@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-This report uses the rerun in `../../benchmark-results-16way-rerun`, which
+This report uses the rerun in `benchmark-results-16way-rerun`, which
 contains the four variants, nine payload sizes, four communication/backend
 paths, and five repeats. Unlike the previous result set, this rerun also
 contains the raw timing samples.
