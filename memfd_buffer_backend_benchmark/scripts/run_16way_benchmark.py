@@ -75,6 +75,7 @@ def parse_csv_values(value, kind):
 def check_output_path(output_dir, variants, overwrite):
     output_dir.mkdir(parents=True, exist_ok=True)
     existing = [output_dir / f"{variant}.csv" for variant in variants]
+    existing.extend(output_dir / "raw" / f"{variant}.csv" for variant in variants)
     existing = [path for path in existing if path.exists()]
     if existing and not overwrite:
         names = ", ".join(path.name for path in existing)
@@ -251,9 +252,11 @@ def main():
             run_shell(build_command, ros2_root, [underlay_setup])
 
             output = output_dir / f"{variant}.csv"
+            raw_output = output_dir / "raw" / f"{variant}.csv"
             runner_command = (
                 f"python3 {shell_quote(runner)} "
                 f"--output {shell_quote(output)} "
+                f"--raw-output {shell_quote(raw_output)} "
                 f"--variant {shell_quote(variant)} "
                 f"--sizes {shell_quote(','.join(sizes))} "
                 f"--count {args.count} --rate-hz {args.rate_hz} "

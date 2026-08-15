@@ -2,8 +2,10 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -63,7 +65,7 @@ class E2eNode : public rclcpp::Node
 public:
   E2eNode(
     const std::string & role, const std::string & mode, std::size_t size, std::size_t count,
-    int rate, std::size_t warmup, bool use_intra_process)
+    int rate, std::size_t warmup, bool use_intra_process, const std::string & raw_output_path)
   : Node("memfd_old_e2e_" + role + "_" + mode, node_options_for(use_intra_process)),
     role_(role),
     mode_(mode),
@@ -71,8 +73,16 @@ public:
     size_(size),
     count_(count),
     warmup_(warmup),
-    use_intra_process_(use_intra_process)
+    use_intra_process_(use_intra_process),
+    raw_output_path_(raw_output_path)
   {
+    if (!raw_output_path_.empty()) {
+      raw_output_.open(raw_output_path_);
+      if (!raw_output_) {
+        throw std::runtime_error("could not open raw output: " + raw_output_path_);
+      }
+    }
+
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
 
     if (role_ == "pub" || role_ == "intra") {
@@ -138,9 +148,17 @@ private:
     }
 
     // Start immediately before publish.  steady_clock is comparable between
-    // same-host Linux processes.
-    set_steady_stamp(msg->header.stamp, Clock::now());
+    // same-host Linux processes.  The timestamp also identifies this message
+    // when the publisher and subscriber raw files are joined by the runner.
+    const auto publish_start = Clock::now();
+    set_steady_stamp(msg->header.stamp, publish_start);
+    const auto publish_timestamp_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(publish_start.time_since_epoch()).count();
     pub_->publish(std::move(msg));
+    const auto publish_end = Clock::now();
+    write_raw_publish(
+      publish_timestamp_ns,
+      std::chrono::duration_cast<std::chrono::nanoseconds>(publish_end - publish_start).count());
     ++sent_;
   }
 
@@ -184,7 +202,14 @@ private:
     }
 
     ++received_;
-    if (received_ > warmup_) {
+    const bool measured = received_ > warmup_;
+    const auto sample_index = measured ? received_ - warmup_ - 1 : 0;
+    const auto publish_timestamp_ns = steady_stamp_to_nanoseconds(msg->header.stamp);
+    const auto receive_timestamp_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end.time_since_epoch()).count();
+    write_raw_receive(
+      publish_timestamp_ns, receive_timestamp_ns, latency_ns, measured, sample_index);
+    if (measured) {
       latencies_.push_back(latency_ns);
     }
 
@@ -195,6 +220,27 @@ private:
                 << percentile_us(latencies_, 0.99) << std::endl;
       rclcpp::shutdown();
     }
+  }
+
+  void write_raw_publish(std::int64_t publish_timestamp_ns, std::int64_t duration_ns)
+  {
+    if (!raw_output_) {
+      return;
+    }
+    raw_output_ << "RAW,publish," << publish_timestamp_ns << ',' << duration_ns << '\n';
+    raw_output_.flush();
+  }
+
+  void write_raw_receive(
+    std::int64_t publish_timestamp_ns, std::int64_t receive_timestamp_ns,
+    std::int64_t latency_ns, bool measured, std::size_t sample_index)
+  {
+    if (!raw_output_) {
+      return;
+    }
+    raw_output_ << "RAW,receive," << publish_timestamp_ns << ',' << receive_timestamp_ns << ','
+                << latency_ns << ',' << (measured ? 1 : 0) << ',' << sample_index << '\n';
+    raw_output_.flush();
   }
 
   std::string role_;
@@ -208,6 +254,8 @@ private:
   std::size_t received_{0};
   std::size_t va_matches_{0};
   std::uintptr_t published_data_address_{0};
+  std::string raw_output_path_;
+  std::ofstream raw_output_;
   rclcpp::Publisher<Image>::SharedPtr pub_;
   rclcpp::Subscription<Image>::SharedPtr sub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -230,7 +278,8 @@ int main(int argc, char ** argv)
     role, mode, std::stoull(value_of(argc, argv, "--size", "1048576")),
     std::stoull(value_of(argc, argv, "--count", "100")),
     std::stoi(value_of(argc, argv, "--rate-hz", "50")),
-    std::stoull(value_of(argc, argv, "--warmup", "10")), use_intra_process);
+    std::stoull(value_of(argc, argv, "--warmup", "10")), use_intra_process,
+    value_of(argc, argv, "--raw-output", ""));
   rclcpp::spin(node);
   rclcpp::shutdown();
 }
