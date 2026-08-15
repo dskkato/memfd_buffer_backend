@@ -37,7 +37,7 @@ and exclude the first 10 callbacks as warm-up.  The default sizes are
 Build and run only this repository's packages as follows.
 
 ```bash
-source /opt/ros2/lyrical/setup.bash
+source /opt/ros/lyrical/setup.bash
 # or, if you built it from source
 # source ~/ros2_lyrical/install/setup.bash
 colcon build 
