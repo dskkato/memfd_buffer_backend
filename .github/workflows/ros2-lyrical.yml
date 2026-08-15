@@ -13,24 +13,12 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:resolute
+      image: rostooling/setup-ros-docker:ubuntu-resolute-ros-lyrical-ros-base-latest
     env:
       CC: clang
       CXX: clang++
 
     steps:
-      - name: Set up ROS 2 Lyrical
-        uses: ros-tooling/setup-ros@v0.7
-        with:
-          required-ros-distributions: lyrical
-
-      - name: Configure Clang toolchain
-        run: |
-          apt-get update
-          apt-get install -y g++
-          gcc_install_dir="$(dirname "$(g++ -print-file-name=libstdc++.so)")"
-          echo "CXXFLAGS=--gcc-install-dir=${gcc_install_dir}" >> "${GITHUB_ENV}"
-
       - name: Build and test ROS packages
         uses: ros-tooling/action-ros-ci@v0.4
         with:
