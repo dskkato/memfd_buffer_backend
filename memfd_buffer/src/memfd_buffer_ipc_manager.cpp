@@ -150,7 +150,10 @@ struct MemfdFdBroker::FDDispatcher
     }
     if (event_fd_ >= 0) {
       const std::uint64_t wake = 1;
-      (void)write(event_fd_, &wake, sizeof(wake));
+      // This is a best-effort wakeup.  epoll_wait() has a bounded timeout,
+      // so shutdown remains safe if the non-blocking eventfd write fails.
+      const ssize_t wake_result = write(event_fd_, &wake, sizeof(wake));
+      (void)wake_result;
     }
     if (thread_.joinable()) {
       thread_.join();
@@ -187,7 +190,8 @@ private:
         const int socket = events[index].data.fd;
         if (socket == event_fd_) {
           std::uint64_t ignored = 0;
-          (void)read(event_fd_, &ignored, sizeof(ignored));
+          const ssize_t read_result = read(event_fd_, &ignored, sizeof(ignored));
+          (void)read_result;
           continue;
         }
         int fd_to_serve = -1;
