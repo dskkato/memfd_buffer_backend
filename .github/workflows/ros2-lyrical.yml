@@ -24,6 +24,9 @@ jobs:
         with:
           required-ros-distributions: lyrical
 
+      - name: Install C++ standard library
+        run: apt-get update && apt-get install -y g++
+
       - name: Build and test ROS packages
         uses: ros-tooling/action-ros-ci@v0.4
         with:
