@@ -24,8 +24,12 @@ jobs:
         with:
           required-ros-distributions: lyrical
 
-      - name: Install C++ standard library
-        run: apt-get update && apt-get install -y g++
+      - name: Configure Clang toolchain
+        run: |
+          apt-get update
+          apt-get install -y g++
+          gcc_install_dir="$(dirname "$(g++ -print-file-name=libstdc++.so)")"
+          echo "CXXFLAGS=--gcc-install-dir=${gcc_install_dir}" >> "${GITHUB_ENV}"
 
       - name: Build and test ROS packages
         uses: ros-tooling/action-ros-ci@v0.4
