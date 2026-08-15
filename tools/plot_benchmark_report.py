@@ -32,6 +32,12 @@ PATHS = (
     ("intra_process_va", "cpu", "Intra CPU"),
     ("intra_process_va", "memfd", "Intra SHM"),
 )
+PATH_COLORS = {
+    "Inter CPU": "#5E81AC",
+    "Inter SHM": "#D08770",
+    "Intra CPU": "#A3BE8C",
+    "Intra SHM": "#B48EAD",
+}
 SIZES = (64, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216)
 
 
@@ -79,31 +85,26 @@ def configure_axis(axis):
 
 
 def save_figure(figure, output_dir, name):
-    figure.savefig(output_dir / f"{name}.svg", bbox_inches="tight")
     figure.savefig(output_dir / f"{name}.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
 def plot_baseline_paths(results, output_dir):
-    figure, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)
-    figure.suptitle("Baseline latency across communication and buffer paths", fontsize=15)
-    for axis, (communication, backend, title) in zip(axes.flat, PATHS):
+    figure, axis = plt.subplots(figsize=(11, 6.5))
+    for communication, backend, title in PATHS:
         p50 = series(results, "baseline", communication, backend, "p50_us")
-        p95 = series(results, "baseline", communication, backend, "p95_us")
-        axis.plot(SIZES, p50, marker="o", linewidth=2, color="#5E81AC", label="p50")
         axis.plot(
-            SIZES, p95, marker="o", linestyle="--", linewidth=1.4,
-            color="#D08770", label="p95"
+            SIZES, p50, marker="o", linewidth=2.2, color=PATH_COLORS[title],
+            label=title
         )
-        configure_axis(axis)
-        axis.set_title(title)
-        axis.set_yscale("log")
-        axis.set_ylabel("Latency (µs)")
-        axis.set_ylim(bottom=10)
-    axes[1, 0].set_xlabel("Payload size")
-    axes[1, 1].set_xlabel("Payload size")
-    axes[0, 1].legend(loc="upper left", frameon=True)
-    figure.tight_layout(rect=(0, 0, 1, 0.95))
+    configure_axis(axis)
+    axis.set_yscale("log")
+    axis.set_ylim(bottom=10)
+    axis.set_xlabel("Payload size")
+    axis.set_ylabel("p50 latency (µs)")
+    axis.set_title("Baseline p50 latency across communication and buffer paths")
+    axis.legend(frameon=True)
+    figure.tight_layout()
     save_figure(figure, output_dir, "baseline-path-latency")
 
 

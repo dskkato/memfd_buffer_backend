@@ -131,7 +131,7 @@ the total end-to-end path.
 
 ![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
 
-*Figure 1. Baseline p50 and p95 latency across the four paths. Intra-process
+*Figure 1. Baseline p50 latency across the four paths. Intra-process
 communication stays in the tens-of-microseconds range, while inter-process CPU
 communication enters a millisecond-scale regime for multi-megabyte payloads.*
 
