@@ -245,20 +245,20 @@ analysis.
 
 The rerun summary files are:
 
-- [baseline.csv](../../benchmark-results-16way-rerun/baseline.csv)
-- [unique_ptr.csv](../../benchmark-results-16way-rerun/unique_ptr.csv)
-- [lazy.csv](../../benchmark-results-16way-rerun/lazy.csv)
-- [reserve.csv](../../benchmark-results-16way-rerun/reserve.csv)
+- [baseline.csv](./benchmark-results-16way-rerun/baseline.csv)
+- [unique_ptr.csv](./benchmark-results-16way-rerun/unique_ptr.csv)
+- [lazy.csv](./benchmark-results-16way-rerun/lazy.csv)
+- [reserve.csv](./benchmark-results-16way-rerun/reserve.csv)
 
 The raw files are in
-[`../../benchmark-results-16way-rerun/raw/`](../../benchmark-results-16way-rerun/raw/).
+[`./benchmark-results-16way-rerun/raw/`](./benchmark-results-16way-rerun/raw/).
 
 Figures can be regenerated from the rerun with the workspace virtual
 environment:
 
 ```bash
 source .venv/bin/activate
-python src/memfd_buffer_backend/tools/plot_benchmark_report.py \
+python tools/plot_benchmark_report.py \
   --data-dir benchmark-results-16way-rerun
 ```
 

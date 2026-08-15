@@ -165,17 +165,19 @@ def run_inter_process_case(
     communication = "inter_process"
     publisher_raw = Path(raw_dir) / "publisher.raw" if raw_dir else None
     subscriber_raw = Path(raw_dir) / "subscriber.raw" if raw_dir else None
-    subscriber = subprocess.Popen(
-        command(
-            "sub", mode, size, count, rate, warmup, subscriber_affinity, subscriber_raw
-        ),
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    subscriber = None
     publisher = None
+    output = ""
     try:
+        subscriber = subprocess.Popen(
+            command(
+                "sub", mode, size, count, rate, warmup, subscriber_affinity, subscriber_raw
+            ),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
         time.sleep(discovery_wait)
         publisher = subprocess.Popen(
             command(
@@ -196,6 +198,7 @@ def run_inter_process_case(
             )
     finally:
         terminate_process(publisher)
+        terminate_process(subscriber)
     return parse_result(output, communication, mode, size), read_raw_case(
         (publisher_raw, subscriber_raw)
     )
