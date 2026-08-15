@@ -134,9 +134,14 @@ def distribution_x_limit(raw_results):
 def plot_one_mib_histogram(
     raw_results, output_dir, backend, backend_label, name, x_limit
 ):
-    figure, axis = plt.subplots(figsize=(10.5, 5.8))
+    figure, axes = plt.subplots(
+        nrows=len(VARIANTS),
+        ncols=1,
+        sharex=True,
+        figsize=(10.5, 10.5),
+    )
     bins = range(0, x_limit + 250, 250)
-    for variant in VARIANTS:
+    for axis, variant in zip(axes, VARIANTS):
         rows = raw_results[(variant, "inter_process", backend, ONE_MIB)]
         color = VARIANT_COLORS[variant]
         values = [row["e2e_latency_us"] for row in rows]
@@ -144,10 +149,9 @@ def plot_one_mib_histogram(
             values,
             bins=bins,
             color=color,
-            alpha=0.35,
+            alpha=0.55,
             edgecolor=color,
             linewidth=0.5,
-            label=f"{VARIANT_LABELS[variant]} (n={len(values)})",
         )
         axis.axvline(
             median(values),
@@ -156,25 +160,30 @@ def plot_one_mib_histogram(
             linewidth=1.4,
             alpha=0.85,
         )
-
-    axis.set_xlim(0, x_limit)
-    axis.set_xticks(range(0, x_limit + 1, 2000))
-    axis.grid(True, axis="both", color="#D8DEE9", linewidth=0.7)
-    axis.set_axisbelow(True)
-    axis.set_xlabel("End-to-end latency (µs); shared x-axis across CPU and SHM plots")
-    axis.set_ylabel("Frequency (samples)")
-    axis.set_title(f"1 MiB inter-process {backend_label} latency frequency distribution")
-    axis.legend(title="Variant; dashed line = median", frameon=True)
+        axis.set_xlim(0, x_limit)
+        axis.grid(True, axis="both", color="#D8DEE9", linewidth=0.7)
+        axis.set_axisbelow(True)
+        axis.set_ylabel("Frequency (samples)")
+        axis.set_title(
+            f"{VARIANT_LABELS[variant]} (n={len(values)}; dashed line = median)",
+            loc="left",
+            fontsize=10,
+        )
+    axes[-1].set_xticks(range(0, x_limit + 1, 2000))
+    axes[-1].set_xlabel(
+        "End-to-end latency (µs); shared x-axis across CPU and SHM plots"
+    )
+    figure.suptitle(f"1 MiB inter-process {backend_label} latency frequency distribution")
     figure.text(
         0.01,
         0.01,
-        "Raw measured samples: five repeats × 20 samples per variant",
+        "Raw measured samples: five repeats × 20 samples per variant; common 250 µs bins",
         ha="left",
         va="bottom",
         fontsize=8,
         color="#4C566A",
     )
-    figure.tight_layout(rect=(0, 0.04, 1, 1))
+    figure.tight_layout(rect=(0, 0.04, 1, 0.97))
     save_figure(figure, output_dir, name)
 
 
