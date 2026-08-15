@@ -71,6 +71,12 @@ be interpreted as proof of a payload-sized copy on the SHM wire path.
 
 ![Baseline latency across the four communication and buffer paths](./figures/baseline-path-latency.png)
 
+The same four-path p50 view is also available for each patched variant:
+
+- [`unique_ptr`](./figures/unique_ptr-path-latency.png)
+- [`lazy`](./figures/lazy-path-latency.png)
+- [`reserve`](./figures/reserve-path-latency.png)
+
 ## Variant results across all paths
 
 ### `unique_ptr`

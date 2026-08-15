@@ -214,10 +214,10 @@ def save_figure(figure, output_dir, name):
     plt.close(figure)
 
 
-def plot_baseline_paths(results, output_dir):
+def plot_variant_paths(results, output_dir, variant):
     figure, axis = plt.subplots(figsize=(11, 6.5))
     for communication, backend, title in PATHS:
-        p50 = series(results, "baseline", communication, backend, "p50_us")
+        p50 = series(results, variant, communication, backend, "p50_us")
         axis.plot(
             SIZES, p50, marker="o", linewidth=2.2, color=PATH_COLORS[title],
             label=title
@@ -227,10 +227,12 @@ def plot_baseline_paths(results, output_dir):
     axis.set_ylim(bottom=10)
     axis.set_xlabel("Payload size")
     axis.set_ylabel("p50 latency (µs)")
-    axis.set_title("Baseline p50 latency across communication and buffer paths")
+    axis.set_title(
+        f"{VARIANT_LABELS[variant].capitalize()} p50 latency across communication and buffer paths"
+    )
     axis.legend(frameon=True)
     figure.tight_layout()
-    save_figure(figure, output_dir, "baseline-path-latency")
+    save_figure(figure, output_dir, f"{variant}-path-latency")
 
 
 def plot_inter_variant_comparison(results, output_dir, backend, backend_label, name):
@@ -288,7 +290,8 @@ def main():
         "figure.facecolor": "white",
         "axes.facecolor": "#FFFFFF",
     })
-    plot_baseline_paths(results, args.output_dir)
+    for variant in VARIANTS:
+        plot_variant_paths(results, args.output_dir, variant)
     plot_inter_variant_comparison(
         results, args.output_dir, "memfd", "SHM", "inter-shm-variant-comparison"
     )
