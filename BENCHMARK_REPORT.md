@@ -141,11 +141,6 @@ communication enters a millisecond-scale regime for multi-megabyte payloads.*
 `rmw_fastrtps_cpp` alternatives. The patched paths flatten the large-buffer
 increase visible in the baseline.*
 
-![Inter-process SHM speedup over CPU](./figures/inter-shm-speedup.png)
-
-*Figure 3. Inter-process p50 speedup, computed as CPU latency divided by SHM
-latency. Values above 1× indicate a benefit from the memfd-backed path.*
-
 ## 3. `rmw_fastrtps_cpp` fix and regression check
 
 The following ratios compare each variant's median p50 at each size with the

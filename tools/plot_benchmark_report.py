@@ -130,26 +130,6 @@ def plot_inter_shm_variants(results, output_dir):
     save_figure(figure, output_dir, "inter-shm-variant-comparison")
 
 
-def plot_shm_speedup(results, output_dir):
-    figure, axis = plt.subplots(figsize=(11, 6.5))
-    for variant in VARIANTS:
-        cpu = series(results, variant, "inter_process", "cpu", "p50_us")
-        shm = series(results, variant, "inter_process", "memfd", "p50_us")
-        speedup = [cpu_value / shm_value for cpu_value, shm_value in zip(cpu, shm)]
-        axis.plot(
-            SIZES, speedup, marker="o", linewidth=2.2,
-            color=VARIANT_COLORS[variant], label=VARIANT_LABELS[variant]
-        )
-    configure_axis(axis)
-    axis.set_xlabel("Payload size")
-    axis.set_ylabel("CPU p50 / SHM p50 (×)")
-    axis.set_title("Inter-process benefit of the memfd-backed buffer")
-    axis.axhline(1.0, color="#4C566A", linewidth=1, linestyle=":")
-    axis.legend(frameon=True)
-    figure.tight_layout()
-    save_figure(figure, output_dir, "inter-shm-speedup")
-
-
 def main():
     package_dir = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser()
@@ -177,7 +157,6 @@ def main():
     })
     plot_baseline_paths(results, args.output_dir)
     plot_inter_shm_variants(results, args.output_dir)
-    plot_shm_speedup(results, args.output_dir)
     print(f"wrote figures to {args.output_dir}")
 
 
