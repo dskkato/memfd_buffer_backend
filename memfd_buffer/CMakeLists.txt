@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer)
 
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  message(FATAL_ERROR
+    "memfd_buffer supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+endif()
+
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
