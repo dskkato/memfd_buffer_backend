@@ -3,10 +3,7 @@ name: ROS 2 Lyrical CI
 on:
   pull_request:
     branches:
-      - develop
-  push:
-    branches:
-      - develop
+      - rolling
   workflow_dispatch:
 
 jobs:
