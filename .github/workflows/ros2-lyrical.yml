@@ -4,9 +4,11 @@ on:
   pull_request:
     branches:
       - develop
+      - rolling
   push:
     branches:
       - develop
+      - rolling
   workflow_dispatch:
 
 jobs:
