@@ -104,6 +104,9 @@ if(BUILD_TESTING)
 
   ament_add_pytest_test(test_memfd_buffer_py
     test/test_memfd_buffer_py.py
+    # This is a standalone pytest test.  Avoid loading unrelated ROS pytest
+    # plugins, whose launch_testing hook versions may not match in CI.
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
 
 endif()
