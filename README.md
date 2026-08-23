@@ -16,6 +16,30 @@ implementation.
 - `memfd_buffer_backend`: rosidl buffer backend plugin.
 - `memfd_buffer_backend_msgs`: descriptor message used for inter-process import.
 
+## Python zero-copy access
+
+The `memfd_buffer` package exposes scoped Python buffer-protocol access. NumPy
+is optional and consumes the standard `memoryview` without copying:
+
+```python
+import numpy as np
+from memfd_buffer import allocate_buffer, read_buffer, write_buffer
+
+buffer = allocate_buffer(1024)
+with write_buffer(buffer) as view:
+    np.frombuffer(view, dtype=np.uint8)[:] = 7
+
+message.data = buffer
+
+with read_buffer(received_message.data) as view:
+    array = np.frombuffer(view, dtype=np.uint8)
+    # Use array only inside this scope.
+```
+
+Read views are read-only. Write views are exclusive and are finalized when the
+scope closes. A derived view must not escape the scope; closing raises
+`BufferError` while an exported NumPy or memoryview object remains alive.
+
 ## Benchmark
 
 The benchmark package, benchmark results, report, and figures are maintained
