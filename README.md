@@ -13,13 +13,16 @@ implementation.
 ## Packages
 
 - `memfd_buffer`: memfd allocation, pooling, handles, and FD brokering.
+- `memfd_buffer_backend_py`: Python zero-copy bindings for the memfd backend
+  (installs the `memfd_buffer` Python module).
 - `memfd_buffer_backend`: rosidl buffer backend plugin.
 - `memfd_buffer_backend_msgs`: descriptor message used for inter-process import.
 
 ## Python zero-copy access
 
-The `memfd_buffer` package exposes scoped Python buffer-protocol access. NumPy
-is optional and consumes the standard `memoryview` without copying:
+The `memfd_buffer_backend_py` package exposes scoped Python buffer-protocol
+access through the `memfd_buffer` Python module. NumPy is optional and consumes
+the standard `memoryview` without copying:
 
 ```python
 import numpy as np

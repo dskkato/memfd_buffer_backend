@@ -54,7 +54,8 @@ py::object allocate_python_buffer(std::size_t byte_count)
   py::object take_buffer = py::module_::import("rosidl_buffer").attr("_take_buffer_from_ptr");
   py::object result = take_buffer(
     py::int_(reinterpret_cast<std::uintptr_t>(buffer.get())));
-  (void)buffer.release();
+  // The ownership of the buffer is transferred to Python, so we can release it here.
+  [[maybe_unused]] auto * released_buffer = buffer.release();
   return result;
 }
 

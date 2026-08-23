@@ -15,13 +15,10 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
 find_package(rosidl_buffer REQUIRED)
 find_package(memfd_buffer_backend_msgs REQUIRED)
 find_package(rmw REQUIRED)
 find_package(rcutils REQUIRED)
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-find_package(pybind11 REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/memfd_buffer.cpp
@@ -43,20 +40,6 @@ target_link_libraries(${PROJECT_NAME}
     ${memfd_buffer_backend_msgs_TARGETS}
   PRIVATE
     rt
-)
-
-pybind11_add_module(_memfd_buffer_py
-  src/memfd_buffer_py.cpp
-)
-target_link_libraries(_memfd_buffer_py PRIVATE
-  ${PROJECT_NAME}
-  rosidl_buffer::rosidl_buffer
-)
-
-ament_python_install_package(memfd_buffer)
-
-install(TARGETS _memfd_buffer_py
-  LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/memfd_buffer"
 )
 
 install(
@@ -89,7 +72,6 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
-  find_package(ament_cmake_pytest REQUIRED)
 
   ament_add_gtest(test_memfd_buffer
     test/test_memfd_buffer.cpp
@@ -101,13 +83,6 @@ if(BUILD_TESTING)
       rt
     )
   endif()
-
-  ament_add_pytest_test(test_memfd_buffer_py
-    test/test_memfd_buffer_py.py
-    # This is a standalone pytest test.  Avoid loading unrelated ROS pytest
-    # plugins, whose launch_testing hook versions may not match in CI.
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
 
 endif()
 
