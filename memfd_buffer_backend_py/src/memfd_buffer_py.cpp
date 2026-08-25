@@ -31,23 +31,53 @@ namespace memfd_buffer_backend
 namespace
 {
 
-rosidl::Buffer<std::uint8_t> * get_buffer_pointer(const py::object & owner)
+/// \brief A helper wrapper around `_get_buffer_ptr`.
+///
+/// Returns a raw pointer to the underlying `rosidl::Buffer<uint8_t>`.
+/// Ownership is not transferred; the returned pointer is borrowed and remains
+/// valid only while `owner` keeps the corresponding Python buffer object alive.
+///
+/// Ideally, this would access the underlying buffer through a public C++ API,
+/// such as `PyBuffer::get_raw_buffer()`. However, `PyBuffer` is currently an
+/// internal implementation detail and is not available to downstream
+/// extensions. As a workaround, this function calls the Python-exposed
+/// `_get_buffer_ptr` helper and converts the returned address back to the
+/// underlying C++ buffer pointer.
+rosidl::Buffer<std::uint8_t> * get_buffer_ptr(const py::object & owner)
 {
-  // About `_get_buffer_ptr`:
-  // > Returns a raw pointer to the underlying Buffer. Ownership is not
-  // > transferred; the PyBuffer retains ownership and the pointer is only
-  // > valid for the lifetime of this PyBuffer (borrow semantics).
-  //
-  // Ideally, we would use `PyBuffer::get_raw_buffer`, but the PyBuffer type is not
-  // directly available in this translation unit and the method is not exposed to Python.
-  // Instead, we call the Python-exposed helper `_get_buffer_ptr` to retrieve the raw pointer
-  // to the underlying C++ buffer.
   py::object get_pointer = py::module_::import("rosidl_buffer").attr("_get_buffer_ptr");
   const std::uintptr_t address = get_pointer(owner).cast<std::uintptr_t>();
   if (address == 0) {
     throw std::invalid_argument("rosidl buffer pointer must not be null");
   }
   return reinterpret_cast<rosidl::Buffer<std::uint8_t> *>(address);
+}
+
+/// \brief A helper wrapper around `_take_buffer_from_ptr`.
+///
+/// Transfers ownership of a heap-allocated `rosidl::Buffer<uint8_t>` to the
+/// corresponding Python buffer object.
+///
+/// The buffer must be owned by a `std::unique_ptr` using the default deleter,
+/// since `_take_buffer_from_ptr` assumes ownership and will eventually destroy
+/// the buffer with `delete`.
+///
+/// Ideally, ownership would be transferred through a public C++ API, such as a
+/// `PyBuffer` constructor or factory function accepting a smart pointer.
+/// However, no such API is currently available to downstream extensions.
+/// As a workaround, this function passes the raw address to the Python-exposed
+/// `_take_buffer_from_ptr` helper and releases the `unique_ptr` only after the
+/// Python object has successfully taken ownership.
+py::object take_buffer_from_ptr(std::unique_ptr<rosidl::Buffer<std::uint8_t>> buffer_ptr)
+{
+  py::object take_buffer = py::module_::import("rosidl_buffer").attr("_take_buffer_from_ptr");
+
+  py::object result = take_buffer(py::int_(reinterpret_cast<std::uintptr_t>(buffer_ptr.get())));
+
+  // Ownership has been transferred to the returned Python buffer object.
+  [[maybe_unused]] auto * released_buffer = buffer_ptr.release();
+
+  return result;
 }
 
 py::object allocate_buffer_internal(std::size_t byte_count)
@@ -61,29 +91,15 @@ py::object allocate_buffer_internal(std::size_t byte_count)
 
   auto buffer = std::make_unique<rosidl::Buffer<std::uint8_t>>(allocate_buffer(byte_count));
 
-  // About `_take_buffer_from_ptr`:
-  // > Takes ownership of a heap-allocated Buffer<uint8_t>. The pointer
-  // > must have been allocated with `new` so that the default `delete`
-  // > deleter is valid. Ownership is transferred to the returned PyBuffer.
-  //
-  // Ideally, we would pass ownership directly to a PyBuffer constructor or factory function,
-  // but neither is available here. Instead, we call the Python-exposed helper
-  // `_take_buffer_from_ptr` to transfer ownership of the buffer to Python.
-  py::object take_buffer = py::module_::import("rosidl_buffer").attr("_take_buffer_from_ptr");
-  py::object result = take_buffer(
-    py::int_(reinterpret_cast<std::uintptr_t>(buffer.get())));
-  // The ownership of the buffer is transferred to Python, so we can release it here.
-  [[maybe_unused]] auto * released_buffer = buffer.release();
-  return result;
+  return take_buffer_from_ptr(std::move(buffer));
 }
 
 class NativeReadAccess
 {
 public:
-  explicit NativeReadAccess(py::object owner)
-  : owner_(std::move(owner))
+  explicit NativeReadAccess(py::object owner) : owner_(std::move(owner))
   {
-    buffer_ = get_buffer_pointer(owner_);
+    buffer_ = get_buffer_ptr(owner_);
     byte_count_ = buffer_->size();
     if (byte_count_ > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max())) {
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
@@ -99,8 +115,7 @@ public:
     if (closed_) {
       throw py::buffer_error("read access is closed");
     }
-    return py::buffer_info(
-      handle_.get_ptr(), static_cast<Py_ssize_t>(byte_count_), true);
+    return py::buffer_info(handle_.get_ptr(), static_cast<Py_ssize_t>(byte_count_), true);
   }
 
   void close()
@@ -116,10 +131,15 @@ public:
     }
   }
 
-  bool closed() const {return closed_;}
-  std::size_t byte_count() const {return byte_count_;}
-  void add_export() {++exports_;}
-  void remove_export() noexcept {if (exports_ != 0) {--exports_;}}
+  bool closed() const { return closed_; }
+  std::size_t byte_count() const { return byte_count_; }
+  void add_export() { ++exports_; }
+  void remove_export() noexcept
+  {
+    if (exports_ != 0) {
+      --exports_;
+    }
+  }
 
 private:
   py::object owner_;
@@ -133,10 +153,9 @@ private:
 class NativeWriteAccess
 {
 public:
-  explicit NativeWriteAccess(py::object owner)
-  : owner_(std::move(owner))
+  explicit NativeWriteAccess(py::object owner) : owner_(std::move(owner))
   {
-    buffer_ = get_buffer_pointer(owner_);
+    buffer_ = get_buffer_ptr(owner_);
     byte_count_ = buffer_->size();
     if (byte_count_ > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max())) {
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
@@ -152,8 +171,7 @@ public:
     if (closed_) {
       throw py::buffer_error("write access is closed");
     }
-    return py::buffer_info(
-      handle_.get_ptr(), static_cast<Py_ssize_t>(byte_count_), false);
+    return py::buffer_info(handle_.get_ptr(), static_cast<Py_ssize_t>(byte_count_), false);
   }
 
   void close()
@@ -169,10 +187,15 @@ public:
     }
   }
 
-  bool closed() const {return closed_;}
-  std::size_t byte_count() const {return byte_count_;}
-  void add_export() {++exports_;}
-  void remove_export() noexcept {if (exports_ != 0) {--exports_;}}
+  bool closed() const { return closed_; }
+  std::size_t byte_count() const { return byte_count_; }
+  void add_export() { ++exports_; }
+  void remove_export() noexcept
+  {
+    if (exports_ != 0) {
+      --exports_;
+    }
+  }
 
 private:
   py::object owner_;
@@ -183,7 +206,7 @@ private:
   bool closed_{false};
 };
 
-template<typename AccessT>
+template <typename AccessT>
 struct BufferCallbacks
 {
   static getbufferproc original_getbuffer;
@@ -215,19 +238,19 @@ struct BufferCallbacks
   }
 };
 
-template<typename AccessT>
+template <typename AccessT>
 getbufferproc BufferCallbacks<AccessT>::original_getbuffer = nullptr;
 
-template<typename AccessT>
+template <typename AccessT>
 releasebufferproc BufferCallbacks<AccessT>::original_releasebuffer = nullptr;
 
-template<typename AccessT>
+template <typename AccessT>
 void install_tracked_buffer_callbacks(const py::object & type_object)
 {
   auto * type = reinterpret_cast<PyTypeObject *>(type_object.ptr());
-  if (type->tp_as_buffer == nullptr || type->tp_as_buffer->bf_getbuffer == nullptr ||
-    type->tp_as_buffer->bf_releasebuffer == nullptr)
-  {
+  if (
+    type->tp_as_buffer == nullptr || type->tp_as_buffer->bf_getbuffer == nullptr ||
+    type->tp_as_buffer->bf_releasebuffer == nullptr) {
     throw std::runtime_error("pybind11 did not install buffer protocol callbacks");
   }
   BufferCallbacks<AccessT>::original_getbuffer = type->tp_as_buffer->bf_getbuffer;
@@ -246,28 +269,23 @@ PYBIND11_MODULE(_memfd_buffer_py, module)
 
   module.doc() = "Scoped Python buffer-protocol access to memfd-backed rosidl buffers";
 
-  py::class_<NativeReadAccess> read_class(
-    module, "_NativeReadAccess", py::buffer_protocol());
-  read_class
-  .def(py::init<py::object>())
-  .def_buffer(&NativeReadAccess::buffer_info)
-  .def("close", &NativeReadAccess::close)
-  .def_property_readonly("closed", &NativeReadAccess::closed)
-  .def_property_readonly("byte_count", &NativeReadAccess::byte_count);
+  py::class_<NativeReadAccess> read_class(module, "_NativeReadAccess", py::buffer_protocol());
+  read_class.def(py::init<py::object>())
+    .def_buffer(&NativeReadAccess::buffer_info)
+    .def("close", &NativeReadAccess::close)
+    .def_property_readonly("closed", &NativeReadAccess::closed)
+    .def_property_readonly("byte_count", &NativeReadAccess::byte_count);
 
-  py::class_<NativeWriteAccess> write_class(
-    module, "_NativeWriteAccess", py::buffer_protocol());
-  write_class
-  .def(py::init<py::object>())
-  .def_buffer(&NativeWriteAccess::buffer_info)
-  .def("close", &NativeWriteAccess::close)
-  .def_property_readonly("closed", &NativeWriteAccess::closed)
-  .def_property_readonly("byte_count", &NativeWriteAccess::byte_count);
+  py::class_<NativeWriteAccess> write_class(module, "_NativeWriteAccess", py::buffer_protocol());
+  write_class.def(py::init<py::object>())
+    .def_buffer(&NativeWriteAccess::buffer_info)
+    .def("close", &NativeWriteAccess::close)
+    .def_property_readonly("closed", &NativeWriteAccess::closed)
+    .def_property_readonly("byte_count", &NativeWriteAccess::byte_count);
 
   memfd_buffer_backend::install_tracked_buffer_callbacks<NativeReadAccess>(read_class);
   memfd_buffer_backend::install_tracked_buffer_callbacks<NativeWriteAccess>(write_class);
 
   module.def(
-    "allocate_buffer", &memfd_buffer_backend::allocate_buffer_internal,
-    py::arg("byte_count"));
+    "allocate_buffer", &memfd_buffer_backend::allocate_buffer_internal, py::arg("byte_count"));
 }
