@@ -32,9 +32,7 @@ buffer = allocate_buffer(1024)
 with write_buffer(buffer) as view:
     array = np.frombuffer(view, dtype=np.uint8)
     array[:] = 7
-
-    # Users must delete this numpy array within this `with` context.
-    del array
+    del array  # Derived views must be released before leaving the scope.
 
 message.data = buffer
 ```
@@ -42,10 +40,8 @@ message.data = buffer
 ```python
 with read_buffer(received_message.data) as view:
     array = np.frombuffer(view, dtype=np.uint8)
-    # Use array only inside this scope.
-    ...
-    # Users must delete this numpy array within this `with` context.
-    del array
+    process(array)
+    del array  # Derived views must be released before leaving the scope.
 ```
 
 Read views are read-only. Write views are exclusive and are finalized when the
