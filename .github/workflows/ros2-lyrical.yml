@@ -24,6 +24,7 @@ jobs:
           package-name: |
             memfd_buffer_backend_msgs
             memfd_buffer
+            memfd_buffer_backend_py
             memfd_buffer_backend
           target-ros2-distro: lyrical
           no-symlink-install: true
