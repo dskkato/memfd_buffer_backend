@@ -30,15 +30,21 @@ from memfd_buffer import allocate_buffer, read_buffer, write_buffer
 
 buffer = allocate_buffer(1024)
 with write_buffer(buffer) as view:
-    np.frombuffer(view, dtype=np.uint8)[:] = 7
+    array = np.frombuffer(view, dtype=np.uint8)
+    array[:] = 7
+
+    # Users must delete this numpy array within this `with` context.
+    del array
 
 message.data = buffer
+```
 
+```python
 with read_buffer(received_message.data) as view:
     array = np.frombuffer(view, dtype=np.uint8)
     # Use array only inside this scope.
     ...
-    # Users must delete this numpy array within this `with` closure.
+    # Users must delete this numpy array within this `with` context.
     del array
 ```
 
