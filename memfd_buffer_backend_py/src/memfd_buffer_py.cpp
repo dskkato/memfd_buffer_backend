@@ -31,8 +31,17 @@ namespace memfd_buffer_backend
 namespace
 {
 
-rosidl::Buffer<std::uint8_t> * buffer_pointer(const py::object & owner)
+rosidl::Buffer<std::uint8_t> * get_buffer_pointer(const py::object & owner)
 {
+  // About `_get_buffer_ptr`:
+  // > Returns a raw pointer to the underlying Buffer. Ownership is not
+  // > transferred; the PyBuffer retains ownership and the pointer is only
+  // > valid for the lifetime of this PyBuffer (borrow semantics).
+  //
+  // Ideally, we would use `PyBuffer::get_raw_buffer`, but the PyBuffer type is not
+  // directly available in this translation unit and the method is not exposed to Python.
+  // Instead, we call the Python-exposed helper `_get_buffer_ptr` to retrieve the raw pointer
+  // to the underlying C++ buffer.
   py::object get_pointer = py::module_::import("rosidl_buffer").attr("_get_buffer_ptr");
   const std::uintptr_t address = get_pointer(owner).cast<std::uintptr_t>();
   if (address == 0) {
@@ -41,7 +50,7 @@ rosidl::Buffer<std::uint8_t> * buffer_pointer(const py::object & owner)
   return reinterpret_cast<rosidl::Buffer<std::uint8_t> *>(address);
 }
 
-py::object allocate_python_buffer(std::size_t byte_count)
+py::object allocate_buffer_internal(std::size_t byte_count)
 {
   if (byte_count == 0) {
     throw py::value_error("byte_count must be greater than zero");
@@ -51,6 +60,15 @@ py::object allocate_python_buffer(std::size_t byte_count)
   }
 
   auto buffer = std::make_unique<rosidl::Buffer<std::uint8_t>>(allocate_buffer(byte_count));
+
+  // About `_take_buffer_from_ptr`:
+  // > Takes ownership of a heap-allocated Buffer<uint8_t>. The pointer
+  // > must have been allocated with `new` so that the default `delete`
+  // > deleter is valid. Ownership is transferred to the returned PyBuffer.
+  //
+  // Ideally, we would pass ownership directly to a PyBuffer constructor or factory function,
+  // but neither is available here. Instead, we call the Python-exposed helper
+  // `_take_buffer_from_ptr` to transfer ownership of the buffer to Python.
   py::object take_buffer = py::module_::import("rosidl_buffer").attr("_take_buffer_from_ptr");
   py::object result = take_buffer(
     py::int_(reinterpret_cast<std::uintptr_t>(buffer.get())));
@@ -65,7 +83,7 @@ public:
   explicit NativeReadAccess(py::object owner)
   : owner_(std::move(owner))
   {
-    buffer_ = buffer_pointer(owner_);
+    buffer_ = get_buffer_pointer(owner_);
     byte_count_ = buffer_->size();
     if (byte_count_ > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max())) {
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
@@ -118,7 +136,7 @@ public:
   explicit NativeWriteAccess(py::object owner)
   : owner_(std::move(owner))
   {
-    buffer_ = buffer_pointer(owner_);
+    buffer_ = get_buffer_pointer(owner_);
     byte_count_ = buffer_->size();
     if (byte_count_ > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max())) {
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
@@ -250,5 +268,6 @@ PYBIND11_MODULE(_memfd_buffer_py, module)
   memfd_buffer_backend::install_tracked_buffer_callbacks<NativeWriteAccess>(write_class);
 
   module.def(
-    "allocate_buffer", &memfd_buffer_backend::allocate_python_buffer, py::arg("byte_count"));
+    "allocate_buffer", &memfd_buffer_backend::allocate_buffer_internal,
+    py::arg("byte_count"));
 }
