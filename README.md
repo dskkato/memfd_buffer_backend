@@ -37,6 +37,9 @@ message.data = buffer
 with read_buffer(received_message.data) as view:
     array = np.frombuffer(view, dtype=np.uint8)
     # Use array only inside this scope.
+    ...
+    # Users must delete this numpy array within this `with` closure.
+    del array
 ```
 
 Read views are read-only. Write views are exclusive and are finalized when the
