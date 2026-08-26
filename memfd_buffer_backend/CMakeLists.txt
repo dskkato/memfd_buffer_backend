@@ -72,6 +72,7 @@ if(BUILD_TESTING)
   endif()
 
   ament_auto_add_library(memfd_image_dso_publisher_component SHARED
+    NO_TARGET_LINK_LIBRARIES
     test/src/memfd_image_dso_publisher_node.cpp
   )
   set_target_properties(memfd_image_dso_publisher_component PROPERTIES
@@ -89,6 +90,7 @@ if(BUILD_TESTING)
     "MemfdImageDsoPublisher")
 
   ament_auto_add_library(memfd_image_subscriber_component SHARED
+    NO_TARGET_LINK_LIBRARIES
     test/src/memfd_image_subscriber_node.cpp
   )
   target_link_libraries(memfd_image_subscriber_component
