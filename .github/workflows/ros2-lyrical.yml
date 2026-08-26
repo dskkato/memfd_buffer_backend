@@ -48,10 +48,10 @@ jobs:
           required-ros-distributions: lyrical
 
       - name: Install ROS Python runtime dependencies
-        shell: pwsh
+        shell: cmd
         run: |
-          $rosPython = (Get-Command python3 -ErrorAction Stop).Source
-          & $rosPython -m pip install --upgrade "empy==3.3.4"
+          call C:\dev\lyrical\ros2-windows\setup.bat
+          python3 -m pip install --upgrade "empy==3.3.4"
 
       - name: Restore Python 3.12 packaging compatibility
         shell: pwsh
