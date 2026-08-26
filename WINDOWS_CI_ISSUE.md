@@ -84,4 +84,4 @@ Git の履歴と各試行の差分を確認した結果は次の通りです。
 3. ビルド失敗が残る場合だけ、失敗した最初のパッケージとコマンドに絞って追加修正する。
 4. `action-ros-ci` の現行実装では Windows の `colcon test` が一時的に無効化されているため、job 名の “build-and-test” に反して現状は主に build の確認になる。この点は setup/build が安定してから、別途 `colcon test` の実行方法を検討する。
 
-現時点では source build や手動での ROS 2 セットアップへ戻さず、公式 action のバージョンを固定したまま、今回実際に観測された `setup-ros` の setuptools ダウングレードと Python 3.12 の互換問題だけを先に解消する。
+Windows の対象 distro は `lyrical` に切り替え、Linux 側の `rolling` は維持する。Lyrical は公式 Windows バイナリが提供される一方、Rolling の Windows バイナリは提供されないためである。`required-ros-distributions` と `target-ros2-distro` はともに `lyrical` とする。Python 3.12 の互換問題に対する startup hook は Lyrical でも必要である。
