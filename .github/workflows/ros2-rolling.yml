@@ -23,7 +23,14 @@ jobs:
             memfd_buffer_backend
           target-ros2-distro: rolling
           no-symlink-install: true
-          extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          colcon-defaults: |
+            {
+              "build": {
+                "cmake-args": [
+                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                ]
+              }
+            }
           coverage-result: false
 
   windows-build-and-test:
@@ -48,5 +55,12 @@ jobs:
           target-ros2-distro: rolling
           vcs-repo-file-url: https://raw.githubusercontent.com/ros2/ros2/rolling/ros2.repos
           no-symlink-install: true
-          extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          colcon-defaults: |
+            {
+              "build": {
+                "cmake-args": [
+                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                ]
+              }
+            }
           coverage-result: false
