@@ -69,6 +69,42 @@ if(BUILD_TESTING)
     )
   endif()
 
+  ament_auto_add_library(memfd_image_dso_publisher_component SHARED
+    test/src/memfd_image_dso_publisher_node.cpp
+  )
+  set_target_properties(memfd_image_dso_publisher_component PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+  )
+  target_link_libraries(memfd_image_dso_publisher_component
+    memfd_buffer::memfd_buffer
+    rclcpp::rclcpp
+    rclcpp_components::component
+    ${sensor_msgs_TARGETS}
+    rosidl_runtime_cpp::rosidl_runtime_cpp
+  )
+  rclcpp_components_register_nodes(memfd_image_dso_publisher_component
+    "MemfdImageDsoPublisher")
+
+  ament_auto_add_library(memfd_image_subscriber_component SHARED
+    test/src/memfd_image_subscriber_node.cpp
+  )
+  target_link_libraries(memfd_image_subscriber_component
+    memfd_buffer::memfd_buffer
+    rclcpp::rclcpp
+    rclcpp_components::component
+    ${sensor_msgs_TARGETS}
+    ${std_msgs_TARGETS}
+    rosidl_runtime_cpp::rosidl_runtime_cpp
+  )
+  rclcpp_components_register_nodes(memfd_image_subscriber_component
+    "MemfdImageSubscriber")
+
+  add_launch_test(test/test_memfd_pool_dso_fastrtps_launch.py
+    TARGET test_memfd_pool_dso_fastrtps_launch
+    TIMEOUT 45
+  )
+
 endif()
 
 ament_auto_package(USE_SCOPED_HEADER_INSTALL_DIR)
