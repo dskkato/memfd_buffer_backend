@@ -25,11 +25,18 @@
 #include <type_traits>
 
 #include "memfd_buffer/memfd_buffer.hpp"
+#include "memfd_buffer/visibility_control.h"
 #include "rosidl_buffer/buffer_impl_base.hpp"
 #include "rosidl_buffer/cpu_buffer_impl.hpp"
 
 namespace memfd_buffer_backend
 {
+
+/// Process-wide allocation pool shared by applications and backend plugins.
+///
+/// The definition is intentionally out-of-line in the memfd_buffer shared
+/// library so that different DSOs do not create independent pool instances.
+MEMFD_BUFFER_PUBLIC std::shared_ptr<MemfdMemoryPool> get_or_create_global_pool();
 
 class MemfdError : public std::runtime_error
 {
@@ -121,8 +128,7 @@ public:
 
   static std::shared_ptr<MemfdMemoryPool> get_or_create_global_pool()
   {
-    static std::shared_ptr<MemfdMemoryPool> pool = std::make_shared<MemfdMemoryPool>();
-    return pool;
+    return memfd_buffer_backend::get_or_create_global_pool();
   }
 
   static bool is_pool_ipc_capable() { return get_or_create_global_pool()->is_ipc_capable(); }

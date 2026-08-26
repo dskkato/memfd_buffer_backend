@@ -22,6 +22,7 @@ find_package(rcutils REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/memfd_buffer.cpp
+  src/memfd_buffer_impl.cpp
   src/memfd_buffer_ipc_manager.cpp
   src/memfd_memory_pool.cpp
   src/host_endpoint_manager.cpp
