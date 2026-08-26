@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Set up ROS build tools
         uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: lyrical
 
       - name: Restore Python 3.12 packaging compatibility
         shell: pwsh
@@ -58,7 +60,6 @@ jobs:
             memfd_buffer_backend_py
             memfd_buffer_backend
           target-ros2-distro: lyrical
-          vcs-repo-file-url: https://raw.githubusercontent.com/ros2/ros2/lyrical/ros2.repos
           no-symlink-install: true
           colcon-defaults: |
             {
