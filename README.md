@@ -1,7 +1,8 @@
 # memfd_buffer_backend
 
-`memfd_buffer_backend` is a Linux-only `rosidl::Buffer` backend that shares
-same-host, same-UID memfd allocations between ROS 2 endpoints.
+`memfd_buffer_backend` is a `rosidl::Buffer` backend that shares memory between
+compatible ROS 2 endpoints on Linux and Windows. Linux uses anonymous memfd
+allocations; Windows uses session-local named file mappings.
 
 ## Attribution
 
@@ -12,7 +13,8 @@ implementation.
 
 ## Packages
 
-- `memfd_buffer`: memfd allocation, pooling, handles, and FD brokering.
+- `memfd_buffer`: shared-memory allocation, pooling, handles, Linux FD
+  brokering, and Windows named-mapping import.
 - `memfd_buffer_backend_py`: Python zero-copy bindings for the memfd backend
   (installs the `memfd_buffer` Python module).
 - `memfd_buffer_backend`: rosidl buffer backend plugin.

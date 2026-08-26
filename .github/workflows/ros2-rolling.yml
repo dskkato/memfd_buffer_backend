@@ -23,5 +23,51 @@ jobs:
             memfd_buffer_backend
           target-ros2-distro: rolling
           no-symlink-install: true
-          extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          colcon-defaults: |
+            {
+              "build": {
+                "cmake-args": [
+                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                ]
+              }
+            }
+          coverage-result: false
+
+  windows-build-and-test:
+    runs-on: windows-2022
+
+    steps:
+      - name: Set up ROS build tools
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: rolling
+
+      - name: Install ROS Python runtime dependencies
+        shell: cmd
+        run: |
+          call C:\dev\rolling\ros2-windows\setup.bat
+          python3 -m pip install --upgrade "empy==3.3.4"
+
+      - name: Restore Python 3.12 packaging compatibility
+        shell: pwsh
+        run: python -m pip install --upgrade "setuptools==66.1.1"
+
+      - name: Build ROS 2 Rolling dependencies from source and test packages
+        uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          package-name: |
+            memfd_buffer_backend_msgs
+            memfd_buffer
+            memfd_buffer_backend_py
+            memfd_buffer_backend
+          target-ros2-distro: rolling
+          no-symlink-install: true
+          colcon-defaults: |
+            {
+              "build": {
+                "cmake-args": [
+                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                ]
+              }
+            }
           coverage-result: false

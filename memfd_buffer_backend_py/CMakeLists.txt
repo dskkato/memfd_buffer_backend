@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer_backend_py)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer_backend_py supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+    "memfd_buffer_backend_py supports Linux and Windows only "
+    "(CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -35,16 +38,27 @@ ament_python_install_package(memfd_buffer)
 
 install(TARGETS _memfd_buffer_py
   LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/memfd_buffer"
+  RUNTIME DESTINATION "${PYTHON_INSTALL_DIR}/memfd_buffer"
 )
 
 if(BUILD_TESTING)
-  find_package(ament_cmake_clang_tidy REQUIRED)
+  find_program(CLANG_TIDY_EXECUTABLE
+    NAMES clang-tidy clang-tidy-10 clang-tidy-11 clang-tidy-6.0
+  )
+  if(CLANG_TIDY_EXECUTABLE)
+    find_package(ament_cmake_clang_tidy REQUIRED)
+    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+  else()
+    set(AMENT_LINT_AUTO_EXCLUDE
+      ament_cmake_clang_tidy
+      ament_cmake_uncrustify
+    )
+  endif()
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
   # The default uncrustify configuration has conflicting rules for several
   # C++ constructs, so use clang-tidy as the C++ lint test instead.
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   ament_lint_auto_find_test_dependencies()
 
   ament_add_pytest_test(test_memfd_buffer_py

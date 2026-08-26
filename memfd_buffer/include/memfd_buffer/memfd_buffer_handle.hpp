@@ -21,6 +21,7 @@
 #include <mutex>
 #include <utility>
 
+#include "memfd_buffer/visibility_control.h"
 #include "rosidl_buffer/buffer.hpp"
 
 namespace memfd_buffer_backend
@@ -48,7 +49,7 @@ struct HandleState
 /// by an IPC block, one logical inter-process reader reference until it is
 /// destroyed. It does not provide a memory-ordering or asynchronous
 /// completion guarantee.
-class ReadHandle
+class MEMFD_BUFFER_PUBLIC ReadHandle
 {
 public:
   ReadHandle() = default;
@@ -93,7 +94,7 @@ private:
 /// local ReadHandle is alive. Destruction finalizes the local write state
 /// idempotently. After explicit finalization through MemfdBuffer, the caller
 /// must not use this handle's mutable pointer again.
-class WriteHandle
+class MEMFD_BUFFER_PUBLIC WriteHandle
 {
 public:
   WriteHandle() = default;
