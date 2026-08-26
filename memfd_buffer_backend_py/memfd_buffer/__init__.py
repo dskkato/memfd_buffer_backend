@@ -14,13 +14,38 @@
 
 """Zero-copy Python access to memfd-backed ROS 2 buffers."""
 
+import os
+from pathlib import Path
+
 from typing import Any
 from typing import Optional
 
-from memfd_buffer._memfd_buffer_py import _NativeReadAccess
-from memfd_buffer._memfd_buffer_py import _NativeWriteAccess
-from memfd_buffer._memfd_buffer_py import allocate_buffer
-from rosidl_buffer import Buffer
+_dll_directory_handles = []
+
+
+def _add_dependency_dll_directories() -> None:
+    """Make dependent ROS DLLs visible to Python's Windows loader."""
+    if os.name != 'nt':
+        return
+
+    prefixes = os.environ.get('AMENT_PREFIX_PATH', '').split(os.pathsep)
+    package_prefix = Path(__file__).resolve().parents[3]
+    prefixes.append(str(package_prefix.parent / 'memfd_buffer'))
+    for prefix in prefixes:
+        if not prefix:
+            continue
+        dll_directory = Path(prefix) / 'bin'
+        if dll_directory.is_dir():
+            _dll_directory_handles.append(os.add_dll_directory(str(dll_directory)))
+
+
+_add_dependency_dll_directories()
+
+
+from memfd_buffer._memfd_buffer_py import _NativeReadAccess  # noqa: E402
+from memfd_buffer._memfd_buffer_py import _NativeWriteAccess  # noqa: E402
+from memfd_buffer._memfd_buffer_py import allocate_buffer  # noqa: E402
+from rosidl_buffer import Buffer  # noqa: E402
 
 
 class _Access:

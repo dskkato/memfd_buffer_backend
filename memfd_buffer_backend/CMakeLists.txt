@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer_backend)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
     "memfd_buffer_backend supports Linux and Windows only "
@@ -42,12 +44,22 @@ target_link_libraries(${PROJECT_NAME}
 pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
 
 if(BUILD_TESTING)
-  find_package(ament_cmake_clang_tidy REQUIRED)
+  find_program(CLANG_TIDY_EXECUTABLE
+    NAMES clang-tidy clang-tidy-10 clang-tidy-11 clang-tidy-6.0
+  )
+  if(CLANG_TIDY_EXECUTABLE)
+    find_package(ament_cmake_clang_tidy REQUIRED)
+    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+  else()
+    set(AMENT_LINT_AUTO_EXCLUDE
+      ament_cmake_clang_tidy
+      ament_cmake_uncrustify
+    )
+  endif()
   find_package(ament_lint_auto REQUIRED)
 
   # The default uncrustify configuration conflicts with the C++ constructs
   # used by this package.  Keep clang-tidy as the C++ lint test instead.
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
@@ -107,6 +119,7 @@ if(BUILD_TESTING)
   add_launch_test(test/test_memfd_pool_dso_fastrtps_launch.py
     TARGET test_memfd_pool_dso_fastrtps_launch
     TIMEOUT 45
+    ENV "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/ros_log"
   )
 
 endif()
