@@ -47,6 +47,12 @@ jobs:
         with:
           required-ros-distributions: lyrical
 
+      - name: Install ROS Python runtime dependencies
+        shell: pwsh
+        run: |
+          $rosPython = (Get-Command python3 -ErrorAction Stop).Source
+          & $rosPython -m pip install --upgrade "empy==3.3.4"
+
       - name: Restore Python 3.12 packaging compatibility
         shell: pwsh
         run: python -m pip install --upgrade "setuptools==66.1.1"
