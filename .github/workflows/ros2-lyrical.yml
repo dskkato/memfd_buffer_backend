@@ -47,7 +47,7 @@ jobs:
 
       - name: Restore Python 3.12 packaging compatibility
         shell: pwsh
-        run: python -m pip install --upgrade "setuptools>=66.1,<82"
+        run: python -m pip install --upgrade "setuptools==66.1.1"
 
       - name: Build ROS 2 Lyrical dependencies from source and test packages
         uses: ros-tooling/action-ros-ci@v0.4
