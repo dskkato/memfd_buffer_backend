@@ -37,21 +37,32 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # setup-ros runs rosdep init internally. Python 3.12 removed distutils,
-      # so install a setuptools release that provides the compatibility shim
-      # before setup-ros starts.
-      - name: Prepare Python packaging tools
+      # setup-ros installs setuptools<60 and then runs rosdep. On Python 3.12,
+      # force setuptools' vendored distutils shim for every Python subprocess.
+      - name: Prepare Python compatibility
         shell: pwsh
         run: |
-          python -m pip install --upgrade "setuptools>=66.1,<82"
-          $pythonCheck = @(
-            "import sys"
-            "import setuptools"
-            "import distutils.version"
-            "print(sys.version)"
-            "print(setuptools.__version__)"
+          $compatDir = Join-Path $env:RUNNER_TEMP "python-compat"
+          New-Item -ItemType Directory -Path $compatDir -Force | Out-Null
+          $sitecustomize = @(
+            "import os"
+            "os.environ['SETUPTOOLS_USE_DISTUTILS'] = 'local'"
+            "import _distutils_hack"
+            "_distutils_hack.do_override()"
+          )
+          $sitecustomizePath = Join-Path $compatDir "sitecustomize.py"
+          $sitecustomize | Set-Content -Path $sitecustomizePath -Encoding utf8
+          $pythonPath = $compatDir
+          if ($env:PYTHONPATH) {
+            $pythonPath = "$compatDir;$env:PYTHONPATH"
+          }
+          $env:PYTHONPATH = $pythonPath
+          $githubEnvLine = "PYTHONPATH=$pythonPath"
+          $githubEnvPath = $env:GITHUB_ENV
+          $githubEnvLine | Out-File -FilePath $githubEnvPath `
+            -Encoding utf8 -Append
+          $pythonCheck = "import distutils.version; " + `
             "print(distutils.version.__file__)"
-          ) -join "; "
           python -c $pythonCheck
 
       - name: Set up ROS 2
