@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer_backend)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer_backend supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+    "memfd_buffer_backend supports Linux and Windows only "
+    "(CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -20,6 +21,7 @@ ament_auto_find_build_dependencies()
 ament_auto_add_library(${PROJECT_NAME} SHARED
   src/memfd_buffer_backend_plugin.cpp
 )
+set_target_properties(${PROJECT_NAME} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

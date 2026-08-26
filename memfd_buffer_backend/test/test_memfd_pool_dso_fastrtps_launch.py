@@ -160,7 +160,12 @@ class TestMemfdPoolDsoFastRTPSShutdown(unittest.TestCase):
     """Check that both component containers shut down cleanly."""
 
     def test_exit_codes(self, proc_info):
+        allowable_exit_codes = [0, -2, -15]
+        if os.name == 'nt':
+            # CTRL_C_EVENT can be reported as either signed or unsigned
+            # STATUS_CONTROL_C_EXIT depending on the Python launcher layer.
+            allowable_exit_codes = [0, -1073741510, 3221225786]
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            allowable_exit_codes=[0, -2, -15],
+            allowable_exit_codes=allowable_exit_codes,
         )

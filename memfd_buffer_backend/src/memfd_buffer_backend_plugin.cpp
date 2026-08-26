@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <stdexcept>
@@ -116,7 +123,11 @@ std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
     auto descriptor = std::make_shared<memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
     descriptor->size = memfd_impl->size();
     descriptor->element_type_name = typeid(std::uint8_t).name();
+#ifdef _WIN32
+    descriptor->memfd_pid = static_cast<std::int32_t>(GetCurrentProcessId());
+#else
     descriptor->memfd_pid = static_cast<std::int32_t>(getpid());
+#endif
     descriptor->memfd_block_id = block->block_id;
     descriptor->memfd_block_size = block->mapped_size;
     descriptor->memfd_socket_path = socket_path;

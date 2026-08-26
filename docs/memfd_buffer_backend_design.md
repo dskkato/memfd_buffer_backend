@@ -2,19 +2,18 @@
 
 ## Introduction
 
-`memfd_buffer_backend` is a Linux-only `rosidl::Buffer<T>` storage backend
-that places the payload in an anonymous Linux `memfd` and shares the backing
-object between compatible ROS 2 endpoints. The ROS message carries a small
-descriptor; the payload itself is transferred by mapping the same memory
-object in the subscriber process. When the runtime conditions do not permit
-the optimized path, the backend falls back to the normal CPU buffer path.
+`memfd_buffer_backend` is a Linux and Windows `rosidl::Buffer<T>` storage
+backend. Linux places the payload in an anonymous `memfd`; Windows places it
+in a session-local named file mapping. Compatible ROS 2 endpoints map the same
+backing object, while the ROS message carries only a small descriptor. When
+the runtime conditions do not permit the optimized path, the backend falls
+back to the normal CPU buffer path.
 
 The optimized path is intended for endpoints on the same host and under the
-same Linux user. It supports both intra-process use and inter-process use on
-the same host. A memfd is not a named shared-memory object: it has no global
-name that must be unlinked by an elected owner. The kernel keeps the backing
-object alive while file-descriptor or mapping references exist and reclaims it
-after the last reference disappears.
+same user. Windows additionally requires the same login session because it
+uses the `Local\\` kernel-object namespace. Both operating systems keep the
+backing object alive while descriptor, handle, or mapping references exist and
+reclaim it after the last reference disappears.
 
 The backend must preserve the following ownership rule:
 
@@ -46,23 +45,28 @@ flowchart LR
 The implementation is divided into four responsibilities:
 
 - `MemfdMemoryPool` owns publisher-side blocks. It groups reusable blocks by
-  payload size and keeps each block's memfd, mapping, stable block ID, control
-  header, and broker registration together.
+  payload size and keeps each block's native handle, mapping, stable block ID,
+  control header, and platform IPC identity together.
 - `MemfdFdBroker` exposes a block's live memfd through a private Unix-domain
   socket and sends it with `SCM_RIGHTS`. The server is reusable: every cache
   miss may request the same block FD, and no per-message lease token is
   required.
-- `MemfdHandleCache` owns imported mappings and their received FDs in the
+- `MemfdHandleCache` owns imported mappings and their native handles in the
   subscriber process. A cache hit reuses the existing mapping and does not
-  perform another FD transfer.
+  perform another FD transfer or named-object open.
 - `MemfdBufferBackend` integrates the storage layer with the
   `rosidl::BufferBackend` plugin interface, performs endpoint capability
   decisions, creates descriptors, imports descriptors, and selects CPU
   fallback when necessary.
 
-The broker socket is a rendezvous mechanism only. It may require best-effort
+On Linux, the broker socket is a rendezvous mechanism only. It may require best-effort
 filesystem cleanup, but it does not own the lifetime of the payload. The
 payload lifetime is determined by memfd FD and mapping references.
+
+On Windows no broker is created. `memfd_socket_path` carries an ASCII
+`Local\\rosidl_memfd_buffer_<pid>_<nonce>_<block_id>` mapping name. The
+subscriber calls `OpenFileMappingW` directly, and Windows removes the name
+after the last mapping handle is closed.
 
 ## Publish / subscribe flow
 
@@ -104,10 +108,10 @@ not weaken stale-message detection.
 
 ## IPC capability decision
 
-The backend advertises backend metadata containing the local host identity and
-effective user ID, for example `<hostname>:<euid>`. The endpoint decision is
-conservative: an optimized memfd path is selected only when the remote endpoint
-advertises `memfd` with the same metadata.
+The backend advertises platform locality metadata. Linux uses
+`<hostname>:<euid>`; Windows uses `<computer>:<user SID>:<session ID>`. The
+endpoint decision is conservative: the optimized path is selected only when
+the remote endpoint advertises `memfd` with identical metadata.
 
 ```mermaid
 flowchart TB
@@ -118,18 +122,17 @@ flowchart TB
   B -->|no| Fallback[CPU fallback]
 ```
 
-This policy intentionally does not attempt cross-host FD transfer or
-cross-user access. Endpoint discovery does not probe pool capacity or runtime
-syscall availability. Failures in `memfd_create`, allocation, broker setup,
-`SCM_RIGHTS` transfer, or mapping are handled at the operation that needs them
-and select CPU fallback or allocation failure as appropriate.
+This policy intentionally does not attempt cross-host or cross-user access,
+nor cross-session access on Windows. Endpoint discovery does not probe pool
+capacity or runtime API availability. Allocation, Linux broker/FD transfer,
+Windows named-object open, and mapping failures are handled at the operation
+that needs them and select CPU fallback or allocation failure as appropriate.
 
 ## Descriptor contract
 
 `MemfdBufferDescriptor` identifies a publication and supplies enough
 information for a subscriber to obtain and validate the corresponding
-mapping. The descriptor does not contain an FD; FDs are transferred only over
-the broker socket.
+mapping. The descriptor does not contain a native FD or handle.
 
 | Field | Meaning |
 |---|---|
@@ -138,12 +141,12 @@ the broker socket.
 | `memfd_pid` | Publisher process ID used as part of the block identity. |
 | `memfd_block_id` | Stable block ID within the publisher process and pool lifetime. |
 | `memfd_block_size` | Total mapped region size, including the control header and payload. |
-| `memfd_socket_path` | Private Unix-domain socket used to receive the memfd via `SCM_RIGHTS`. |
+| `memfd_socket_path` | Linux Unix-domain FD broker path, or Windows named file-mapping object name. |
 | `ipc_uid` | Non-zero publication UID used to reject a descriptor for an older reuse generation. |
 
 The cache key must identify the physical imported block, not an individual
 publication. It therefore includes the publisher process identity, stable
-block ID, and broker socket path, but not `ipc_uid`. The UID remains a
+block ID, and platform IPC name/path, but not `ipc_uid`. The UID remains a
 per-publication validation value.
 
 The descriptor is published only after the publisher has finalized its write
@@ -183,6 +186,19 @@ payload. When the last process releases its FD and mapping, the kernel
 reclaims the memfd object. This also handles publisher or subscriber failure
 without a separate orphaned shared-memory cleanup protocol.
 
+### Windows: named file mapping
+
+Windows has no memfd or `SCM_RIGHTS` equivalent in this design. The publisher
+creates a page-file-backed mapping with `CreateFileMappingW`, stores its
+session-local name in `memfd_socket_path`, and maps it with `MapViewOfFile`.
+Subscribers reopen the same object with `OpenFileMappingW`. A random nonce in
+the name prevents PID/block-ID reuse from attaching to a stale object, and
+`ERROR_ALREADY_EXISTS` is rejected rather than silently reusing an object.
+
+Publisher and subscriber mappings own their `HANDLE` and view through RAII.
+There is no unlink operation and no cleanup coordinator: Windows retains the
+object while any process holds a handle, then removes it automatically.
+
 ### Rejected: POSIX named shared memory
 
 POSIX named shared memory is a viable implementation alternative, but this
@@ -211,11 +227,11 @@ be confused with POSIX named shared memory.
 
 Each `MemfdBlock` contains:
 
-- one memfd FD and one publisher-side shared mapping;
+- one native FD/HANDLE and one publisher-side shared mapping;
 - a stable process-local `memfd_block_id`;
 - a fixed payload size and total mapping size;
 - a control header at the beginning of the mapping;
-- a broker registration for repeated FD distribution; and
+- a Linux broker registration or Windows named-object identity; and
 - the current publication UID and pool state.
 
 The pool maintains free lists keyed by payload size. Allocation first searches
@@ -387,13 +403,14 @@ transport path.
 
 `MemfdHandleCache` stores an imported region containing:
 
-- the received memfd FD;
-- the `mmap()` base and total mapping size;
+- the received memfd FD or opened Windows mapping HANDLE;
+- the `mmap()`/`MapViewOfFile()` base and total mapping size;
 - a pointer to the validated control header; and
 - the stable physical-block cache key.
 
-On a cache miss, the subscriber requests one FD from the broker, maps it, and
-validates the descriptor. On a cache hit, it reuses the FD and mapping but
+On a cache miss, the subscriber requests one FD from the Linux broker or opens
+the Windows named mapping, maps it, and validates the descriptor. On a cache
+hit, it reuses the native handle and mapping but
 still validates the current `ipc_uid` for the incoming
 publication. A cache entry may outlive an individual `ReadHandle`; the handle
 owns the logical reader reference, while the cache owns the imported mapping.
@@ -406,5 +423,5 @@ unmaps the region after active handles have released their references.
 The cache is intentionally independent of the pool's free-list. A subscriber
 may retain a mapping after the publisher reuses the block; the UID check keeps
 old descriptors from being interpreted as the new publication. The publisher
-must keep a stable block/socket identity for the lifetime of a cached mapping
+must keep a stable block IPC identity for the lifetime of a cached mapping
 and must not silently replace the memfd behind an existing cache key.

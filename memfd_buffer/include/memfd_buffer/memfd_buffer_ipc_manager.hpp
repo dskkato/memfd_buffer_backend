@@ -22,12 +22,14 @@
 #include <unordered_map>
 
 #include "memfd_buffer/memfd_memory_pool.hpp"
+#include "memfd_buffer/visibility_control.h"
 
 namespace memfd_buffer_backend
 {
 
 /// Reusable publisher-side Unix socket FD broker.
-class MemfdFdBroker
+#ifndef _WIN32
+class MEMFD_BUFFER_PUBLIC MemfdFdBroker
 {
 public:
   MemfdFdBroker();
@@ -54,12 +56,18 @@ private:
   std::unordered_map<std::uint32_t, RegisteredBlock> registered_blocks_;
   std::mutex mutex_;
 };
+#endif
 
 /// One received and mapped physical block in the subscriber process.
-class MemfdImportedBlock
+class MEMFD_BUFFER_PUBLIC MemfdImportedBlock
 {
 public:
+#ifdef _WIN32
+  MemfdImportedBlock(
+    void * mapping_handle, void * mapping, std::size_t mapped_size, std::string socket_path);
+#else
   MemfdImportedBlock(int memfd, void * mapping, std::size_t mapped_size, std::string socket_path);
+#endif
   ~MemfdImportedBlock();
 
   MemfdImportedBlock(const MemfdImportedBlock &) = delete;
@@ -73,16 +81,20 @@ public:
   void release_reader() noexcept;
 
 private:
+#ifdef _WIN32
+  void * memfd_{nullptr};
+#else
   int memfd_{-1};
+#endif
   void * mapping_{nullptr};
   std::size_t mapped_size_{0};
   MemfdControlHeader * control_{nullptr};
   std::string socket_path_;
 };
 
-/// Process-local cache for imported mappings.  The cache key is the physical
-/// block identity, not the publication UID.
-class MemfdHandleCache
+/// Process-local cache for imported Linux memfd or Windows named mappings.
+/// The cache key is the physical block identity, not the publication UID.
+class MEMFD_BUFFER_PUBLIC MemfdHandleCache
 {
 public:
   static std::shared_ptr<MemfdImportedBlock> import_block(
@@ -90,7 +102,9 @@ public:
     std::uint64_t mapped_size, std::uint64_t payload_size, std::uint64_t expected_uid);
 
 private:
+#ifndef _WIN32
   static int receive_fd_from_socket(const std::string & socket_path);
+#endif
   static void validate(
     const MemfdImportedBlock & block, std::uint64_t mapped_size, std::uint64_t payload_size,
     std::uint64_t expected_uid);

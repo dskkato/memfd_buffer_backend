@@ -14,12 +14,19 @@
 
 #include "memfd_buffer/memfd_memory_pool.hpp"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <linux/memfd.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #include <cerrno>
 #include <cstring>
@@ -35,16 +42,20 @@ namespace memfd_buffer_backend
 namespace
 {
 
+#ifndef _WIN32
 int create_memfd()
 {
-#ifdef __linux__
   const int fd = static_cast<int>(syscall(SYS_memfd_create, "rosidl_memfd_buffer", MFD_CLOEXEC));
   return fd;
-#else
-  errno = ENOTSUP;
-  return -1;
-#endif
 }
+#endif
+
+#ifdef _WIN32
+std::wstring widen_ascii(const std::string & value)
+{
+  return std::wstring(value.begin(), value.end());
+}
+#endif
 
 std::uint64_t monotonic_time_us()
 {
@@ -59,9 +70,11 @@ MemfdMemoryPool::MemfdMemoryPool() = default;
 
 MemfdMemoryPool::~MemfdMemoryPool()
 {
+#ifndef _WIN32
   // The broker owns duplicated descriptor references and socket listeners.
   // Stop unregistering those before closing the publisher descriptors.
   broker_.reset();
+#endif
 
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto & block : all_blocks_) {
@@ -70,9 +83,19 @@ MemfdMemoryPool::~MemfdMemoryPool()
       block->control = nullptr;
     }
     if (block->mapping != nullptr && block->mapped_size > 0) {
+#ifdef _WIN32
+      (void)UnmapViewOfFile(block->mapping);
+#else
       munmap(block->mapping, block->mapped_size);
+#endif
       block->mapping = nullptr;
     }
+#ifdef _WIN32
+    if (block->memfd != nullptr) {
+      (void)CloseHandle(static_cast<HANDLE>(block->memfd));
+      block->memfd = nullptr;
+    }
+#else
     if (block->memfd >= 0) {
       close(block->memfd);
       block->memfd = -1;
@@ -80,6 +103,7 @@ MemfdMemoryPool::~MemfdMemoryPool()
     if (!block->socket_path.empty()) {
       unlink(block->socket_path.c_str());
     }
+#endif
   }
 }
 
@@ -172,11 +196,18 @@ void MemfdMemoryPool::mark_published(MemfdBlock * block)
 
 std::string MemfdMemoryPool::register_block_for_ipc(MemfdBlock * block)
 {
+#ifdef _WIN32
+  if (block == nullptr || block->memfd == nullptr) {
+    return {};
+  }
+  return block->socket_path;
+#else
   if (block == nullptr || broker_ == nullptr) {
     return {};
   }
   std::lock_guard<std::mutex> lock(mutex_);
   return broker_->register_block(block);
+#endif
 }
 
 MemfdBlock * MemfdMemoryPool::find_block_for_ptr(const void * ptr) const
@@ -217,6 +248,46 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
     throw std::length_error("memfd buffer mapping size overflows size_t");
   }
   const std::size_t mapped_size = kMemfdPayloadOffset + payload_size;
+#ifdef _WIN32
+  const std::uint32_t block_id = next_block_id_++;
+  HANDLE mapping_handle = nullptr;
+  std::string mapping_name;
+  DWORD mapping_error = ERROR_SUCCESS;
+  for (unsigned int attempt = 0; attempt < 8; ++attempt) {
+    const auto nonce = uid_dist_(uid_rng_);
+    mapping_name = "Local\\rosidl_memfd_buffer_" +
+      std::to_string(GetCurrentProcessId()) + "_" + std::to_string(nonce) + "_" +
+      std::to_string(block_id);
+    const auto wide_name = widen_ascii(mapping_name);
+    const auto size = static_cast<std::uint64_t>(mapped_size);
+    mapping_handle = CreateFileMappingW(
+      INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, static_cast<DWORD>(size >> 32),
+      static_cast<DWORD>(size & 0xffffffffULL), wide_name.c_str());
+    if (mapping_handle == nullptr) {
+      mapping_error = GetLastError();
+      break;
+    }
+    mapping_error = GetLastError();
+    if (mapping_error != ERROR_ALREADY_EXISTS) {
+      break;
+    }
+    (void)CloseHandle(mapping_handle);
+    mapping_handle = nullptr;
+  }
+  if (mapping_handle == nullptr || mapping_error == ERROR_ALREADY_EXISTS) {
+    if (mapping_handle != nullptr) {
+      (void)CloseHandle(mapping_handle);
+    }
+    throw std::runtime_error(
+            "CreateFileMappingW failed: Windows error " + std::to_string(mapping_error));
+  }
+  void * mapping = MapViewOfFile(mapping_handle, FILE_MAP_ALL_ACCESS, 0, 0, mapped_size);
+  if (mapping == nullptr) {
+    const DWORD error = GetLastError();
+    (void)CloseHandle(mapping_handle);
+    throw std::runtime_error("MapViewOfFile failed: Windows error " + std::to_string(error));
+  }
+#else
   if (mapped_size > static_cast<std::size_t>(std::numeric_limits<off_t>::max())) {
     throw std::length_error("memfd buffer mapping is too large for ftruncate");
   }
@@ -237,13 +308,26 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
     close(fd);
     throw std::runtime_error("mmap for memfd failed: " + message);
   }
+#endif
 
   auto block = std::make_unique<MemfdBlock>();
+#ifdef _WIN32
+  block->memfd = mapping_handle;
+#else
   block->memfd = fd;
+#endif
   block->mapping = mapping;
   block->mapped_size = mapped_size;
   block->payload_size = payload_size;
-  block->block_id = next_block_id_++;
+  block->block_id =
+#ifdef _WIN32
+    block_id;
+#else
+    next_block_id_++;
+#endif
+#ifdef _WIN32
+  block->socket_path = mapping_name;
+#endif
   block->control = new (mapping) MemfdControlHeader();
   block->control->payload_size = payload_size;
   block->control->ipc_uid.store(0, std::memory_order_relaxed);
@@ -254,9 +338,11 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
   all_blocks_.push_back(std::move(block));
   initialized_ = true;
   ipc_capable_ = true;
+#ifndef _WIN32
   if (broker_ == nullptr) {
     broker_ = std::make_unique<MemfdFdBroker>();
   }
+#endif
   return result;
 }
 

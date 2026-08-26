@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer_backend_py)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer_backend_py supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+    "memfd_buffer_backend_py supports Linux and Windows only "
+    "(CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -35,6 +36,7 @@ ament_python_install_package(memfd_buffer)
 
 install(TARGETS _memfd_buffer_py
   LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/memfd_buffer"
+  RUNTIME DESTINATION "${PYTHON_INSTALL_DIR}/memfd_buffer"
 )
 
 if(BUILD_TESTING)

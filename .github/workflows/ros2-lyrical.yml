@@ -30,3 +30,24 @@ jobs:
           no-symlink-install: true
           extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           coverage-result: false
+
+  windows-build-and-test:
+    runs-on: windows-2022
+
+    steps:
+      - name: Set up ROS build tools
+        uses: ros-tooling/setup-ros@v0.7
+
+      - name: Build ROS 2 Lyrical dependencies from source and test packages
+        uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          package-name: |
+            memfd_buffer_backend_msgs
+            memfd_buffer
+            memfd_buffer_backend_py
+            memfd_buffer_backend
+          target-ros2-distro: lyrical
+          vcs-repo-file-url: https://raw.githubusercontent.com/ros2/ros2/lyrical/ros2.repos
+          no-symlink-install: true
+          extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          coverage-result: false
