@@ -25,7 +25,7 @@ Python 3.12 では標準ライブラリから `distutils` が削除されてい�
 
 `setuptools` 60 以降は vendored distutils を含みます（[setuptools の互換説明](https://setuptools.pypa.io/en/stable/deprecated/distutils-legacy.html)）。しかし、[setup-ros 0.7.18 の Windows 用 pip パッケージ定義](https://github.com/ros-tooling/setup-ros/blob/0.7.18/src/package_manager/pip.ts) は `setuptools<60.0` を含むパッケージ群を後からインストールします。実際に修正後のログでも、事前に入れた 81.0.0 が 59.8.0 へダウングレードされていました。よって、単純な事前 upgrade では解決しません。
 
-今回の対策は、runner の一時ディレクトリに `sitecustomize.py` を作り、Python 起動時に `SETUPTOOLS_USE_DISTUTILS=local` と `_distutils_hack.do_override()` を実行することです。これにより、setup-ros が 59.8.0 をインストールしても、`rosdep init` のプロセス開始時に setuptools の vendored `distutils` が有効になります。
+今回の対策は、runner の一時ディレクトリへ `setuptools>=66.1,<82` を `--target` で配置し、そこに `sitecustomize.py` を作ることです。Python 起動時に `SETUPTOOLS_USE_DISTUTILS=local` と `_distutils_hack.do_override()` を実行します。pip がこの互換用コピーを後から管理・削除しないよう、`setuptools-*.dist-info` だけは除去します。これにより、setup-ros がグローバル環境へ 59.8.0 をインストールしても、`rosdep init` のプロセス開始時には互換用コピーの vendored `distutils` が有効になります。
 
 なお、ROS 2 の [rosdep チュートリアル](https://github.com/ros2/ros2_documentation/blob/rolling/source/Tutorials/Intermediate/Rosdep.rst) は rosdep の Windows 対応を制限事項として記載しています。`action-ros-ci` 自体は Windows では通常の rosdep install をスキップしますが、`setup-ros` の環境初期化に含まれる `rosdep init` が先に走るため、そこだけは回避できません。
 
@@ -44,6 +44,7 @@ Git の履歴と各試行の差分を確認した結果は次の通りです。
 | `7d7c200` | `extra-cmake-args` から `colcon-defaults` JSON へ変更 | CMake 引数の渡し方としては整理されたが、今回の setup failure とは無関係。 |
 | `cd685dd` | 手動 `setup.bat`、`empy`、`setuptools`、Windows 用 colcon defaults を削除し、action の公式設定に簡素化 | 現在のベースライン。ただし Python 3.12 と `rosdistro` の互換問題が残った。 |
 | run `33019827196` | setup-ros 前に `setuptools>=66.1,<82` を導入 | 事前ステップは成功したが、setup-ros が後から `setuptools<60.0` を導入して 59.8.0 に戻したため、`rosdep init` が同じ import error で失敗。 |
+| run `33021062185` | `PYTHONPATH` の `sitecustomize.py` から `_distutils_hack` を有効化 | runner 初期環境には `_distutils_hack` が無く、準備ステップ自身が `ModuleNotFoundError` で失敗。互換用 setuptools の配置が必要と判明。 |
 
 ## 実施した修正
 
@@ -55,6 +56,9 @@ Git の履歴と各試行の差分を確認した結果は次の通りです。
   run: |
     $compatDir = Join-Path $env:RUNNER_TEMP "python-compat"
     New-Item -ItemType Directory -Path $compatDir -Force | Out-Null
+    python -m pip install --target $compatDir --no-deps "setuptools>=66.1,<82"
+    Get-ChildItem -Path $compatDir -Directory -Filter "setuptools-*.dist-info" |
+      Remove-Item -Recurse -Force
     $sitecustomize = @(
       "import os"
       "os.environ['SETUPTOOLS_USE_DISTUTILS'] = 'local'"

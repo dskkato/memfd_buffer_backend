@@ -44,6 +44,11 @@ jobs:
         run: |
           $compatDir = Join-Path $env:RUNNER_TEMP "python-compat"
           New-Item -ItemType Directory -Path $compatDir -Force | Out-Null
+          $setuptoolsSpec = "setuptools>=66.1,<82"
+          python -m pip install --target $compatDir --no-deps $setuptoolsSpec
+          $setuptoolsMetadata = Join-Path $compatDir "setuptools-*.dist-info"
+          Get-ChildItem -Path $setuptoolsMetadata -Directory |
+            Remove-Item -Recurse -Force
           $sitecustomize = @(
             "import os"
             "os.environ['SETUPTOOLS_USE_DISTUTILS'] = 'local'"
