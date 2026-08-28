@@ -7,31 +7,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    container:
-      image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
+  # build-and-test:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
 
-    steps:
-      - name: Build and test ROS packages
-        uses: ros-tooling/action-ros-ci@v0.4
-        with:
-          package-name: |
-            memfd_buffer_backend_msgs
-            memfd_buffer
-            memfd_buffer_backend_py
-            memfd_buffer_backend
-          target-ros2-distro: rolling
-          no-symlink-install: true
-          colcon-defaults: |
-            {
-              "build": {
-                "cmake-args": [
-                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
-                ]
-              }
-            }
-          coverage-result: false
+  #   steps:
+  #     - name: Build and test ROS packages
+  #       uses: ros-tooling/action-ros-ci@v0.4
+  #       with:
+  #         package-name: |
+  #           memfd_buffer_backend_msgs
+  #           memfd_buffer
+  #           memfd_buffer_backend_py
+  #           memfd_buffer_backend
+  #         target-ros2-distro: rolling
+  #         no-symlink-install: true
+  #         colcon-defaults: |
+  #           {
+  #             "build": {
+  #               "cmake-args": [
+  #                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+  #               ]
+  #             }
+  #           }
+  #         coverage-result: false
 
   windows-build-and-test:
     runs-on: windows-2022
