@@ -33,7 +33,6 @@ jobs:
   #           }
   #         coverage-result: false
 
-jobs:
   windows-build-and-test:
     runs-on: windows-2022
 
