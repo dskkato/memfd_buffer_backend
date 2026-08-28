@@ -59,13 +59,13 @@ jobs:
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
-          pixi run colcon build --merge-install
-
+          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon build --merge-install
+      
       - name: Test
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
           call install\setup.bat
-          pixi run colcon test --merge-install
-          pixi run colcon test-result --verbose
+          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon test --merge-install
+          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon test-result --verbose

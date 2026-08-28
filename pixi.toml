@@ -5,5 +5,5 @@ platforms = ["win-64"]
 [dependencies]
 python = "3.12.*"
 colcon-common-extensions = "*"
-empy = "3.3.4"
+empy = "==3.3.4"
 lark-parser = "*"
