@@ -37,52 +37,35 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # setup-ros installs setuptools<60 and then runs rosdep. On Python 3.12,
-      # force setuptools' vendored distutils shim for every Python subprocess.
-      - name: Prepare Python compatibility
+      - uses: actions/checkout@v4
+        with:
+          path: src/memfd_buffer_backend
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.1
+        with:
+          manifest-path: src/memfd_buffer_backend/pixi.toml
+
+      - name: Download ROS 2 Lyrical
         shell: pwsh
         run: |
-          $compatDir = Join-Path $env:RUNNER_TEMP "python-compat"
-          New-Item -ItemType Directory -Path $compatDir -Force | Out-Null
-          $setuptoolsSpec = "setuptools>=66.1,<82"
-          python -m pip install --target $compatDir --no-deps $setuptoolsSpec
-          $setuptoolsMetadata = Join-Path $compatDir "setuptools-*.dist-info"
-          Get-ChildItem -Path $setuptoolsMetadata -Directory |
-            Remove-Item -Recurse -Force
-          $sitecustomize = @(
-            "import os"
-            "os.environ['SETUPTOOLS_USE_DISTUTILS'] = 'local'"
-            "import _distutils_hack"
-            "_distutils_hack.do_override()"
-          )
-          $sitecustomizePath = Join-Path $compatDir "sitecustomize.py"
-          $sitecustomize | Set-Content -Path $sitecustomizePath -Encoding utf8
-          $pythonPath = $compatDir
-          if ($env:PYTHONPATH) {
-            $pythonPath = "$compatDir;$env:PYTHONPATH"
-          }
-          $env:PYTHONPATH = $pythonPath
-          $githubEnvLine = "PYTHONPATH=$pythonPath"
-          $githubEnvPath = $env:GITHUB_ENV
-          $githubEnvLine | Out-File -FilePath $githubEnvPath `
-            -Encoding utf8 -Append
-          $pythonCheck = "import distutils.version; " + `
-            "print(distutils.version.__file__)"
-          python -c $pythonCheck
+          $url = "https://github.com/ros2/ros2/releases/download/release-lyrical-20260807/ros2-lyrical-2026-08-07-windows-AMD64.zip"
 
-      - name: Set up ROS 2
-        uses: ros-tooling/setup-ros@0.7.18
-        with:
-          required-ros-distributions: lyrical
+          Invoke-WebRequest $url -OutFile lyrical.zip
+          Expand-Archive lyrical.zip -DestinationPath C:\dev\lyrical
 
-      - name: Build and test ROS 2 packages
-        uses: ros-tooling/action-ros-ci@0.4.8
-        with:
-          package-name: |
-            memfd_buffer_backend_msgs
-            memfd_buffer
-            memfd_buffer_backend_py
-            memfd_buffer_backend
-          target-ros2-distro: lyrical
-          no-symlink-install: true
-          coverage-result: false
+      - name: Build
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call C:\dev\lyrical\ros2-windows\setup.bat
+          pixi run colcon build --merge-install
+
+      - name: Test
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call C:\dev\lyrical\ros2-windows\setup.bat
+          call install\setup.bat
+          pixi run colcon test --merge-install
+          pixi run colcon test-result --verbose
