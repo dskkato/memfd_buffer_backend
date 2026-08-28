@@ -37,20 +37,27 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           path: src/memfd_buffer_backend
+
+      - name: Download ROS 2 Lyrical pixi manifest
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            https://raw.githubusercontent.com/ros2/ros2/lyrical/pixi.toml `
+            -OutFile pixi.toml
 
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.10.1
         with:
-          manifest-path: src/memfd_buffer_backend/pixi.toml
+          manifest-path: pixi.toml
 
       - name: Download ROS 2 Lyrical
         shell: pwsh
         run: |
           $url = "https://github.com/ros2/ros2/releases/download/release-lyrical-20260807/ros2-lyrical-2026-08-07-windows-AMD64.zip"
-
           Invoke-WebRequest $url -OutFile lyrical.zip
           Expand-Archive lyrical.zip -DestinationPath C:\dev\lyrical
 
@@ -59,13 +66,13 @@ jobs:
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
-          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon build --merge-install
-      
+          pixi run colcon build --merge-install
+
       - name: Test
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
           call install\setup.bat
-          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon test --merge-install
-          pixi run --manifest-path src\memfd_buffer_backend\pixi.toml colcon test-result --verbose
+          pixi run colcon test
+          pixi run colcon test-result --verbose
