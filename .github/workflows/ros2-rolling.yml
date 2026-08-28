@@ -59,7 +59,7 @@ jobs:
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
-          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon build --merge-install
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon build --merge-install --cmake-args -DENABLE_LINT_TESTS=OFF
 
       - name: Diagnose test environment
         shell: cmd

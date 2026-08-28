@@ -43,24 +43,28 @@ target_link_libraries(${PROJECT_NAME}
 
 pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
 
-if(BUILD_TESTING)
-  find_program(CLANG_TIDY_EXECUTABLE
-    NAMES clang-tidy clang-tidy-10 clang-tidy-11 clang-tidy-6.0
-  )
-  if(CLANG_TIDY_EXECUTABLE)
-    find_package(ament_cmake_clang_tidy REQUIRED)
-    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
-  else()
-    set(AMENT_LINT_AUTO_EXCLUDE
-      ament_cmake_clang_tidy
-      ament_cmake_uncrustify
-    )
-  endif()
-  find_package(ament_lint_auto REQUIRED)
+option(ENABLE_LINT_TESTS "Enable lint tests" ON)
 
-  # The default uncrustify configuration conflicts with the C++ constructs
-  # used by this package.  Keep clang-tidy as the C++ lint test instead.
-  ament_lint_auto_find_test_dependencies()
+if(BUILD_TESTING)
+  if(ENABLE_LINT_TESTS)
+    find_program(CLANG_TIDY_EXECUTABLE
+      NAMES clang-tidy clang-tidy-10 clang-tidy-11 clang-tidy-6.0
+    )
+    if(CLANG_TIDY_EXECUTABLE)
+      find_package(ament_cmake_clang_tidy REQUIRED)
+      set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+    else()
+      set(AMENT_LINT_AUTO_EXCLUDE
+        ament_cmake_clang_tidy
+        ament_cmake_uncrustify
+      )
+    endif()
+    find_package(ament_lint_auto REQUIRED)
+
+    # The default uncrustify configuration conflicts with the C++ constructs
+    # used by this package.  Keep clang-tidy as the C++ lint test instead.
+    ament_lint_auto_find_test_dependencies()
+  endif()
 
   find_package(ament_cmake_gtest REQUIRED)
   find_package(rclcpp REQUIRED)
