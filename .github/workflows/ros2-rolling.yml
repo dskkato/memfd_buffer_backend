@@ -67,5 +67,5 @@ jobs:
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call C:\dev\lyrical\ros2-windows\setup.bat
           call install\setup.bat
-          pixi run colcon test --merge-install || exit /b 1
-          pixi run colcon test-result --verbose
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test --merge-install || exit /b 1
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test-result --verbose
