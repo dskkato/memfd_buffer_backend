@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "memfd_buffer/memfd_buffer_api.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -29,6 +30,7 @@ public:
   explicit MemfdImageDsoPublisher(const rclcpp::NodeOptions & options)
   : Node("memfd_image_dso_publisher", options)
   {
+    published_messages_.reserve(kMessages);
     publisher_ = create_publisher<sensor_msgs::msg::Image>("test_memfd_image_dso", 10);
     timer_ = create_wall_timer(
       std::chrono::milliseconds(100),
@@ -74,12 +76,17 @@ private:
       }
     }
 
-    publisher_->publish(msg);
+    // Keep each mapping alive until the test finishes.  A short-period UDP
+    // test can otherwise recycle the block while an older descriptor is
+    // still in flight, which is intentionally rejected by the UID check.
+    published_messages_.push_back(std::move(msg));
+    publisher_->publish(published_messages_.back());
     sequence_ = sequence;
   }
 
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher_;
   rclcpp::TimerBase::SharedPtr timer_;
+  std::vector<sensor_msgs::msg::Image> published_messages_;
   std::size_t sequence_{0};
 };
 
