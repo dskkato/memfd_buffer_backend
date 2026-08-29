@@ -23,12 +23,13 @@
 
 #include "memfd_buffer/memfd_buffer_handle.hpp"
 #include "memfd_buffer/memfd_memory_pool.hpp"
+#include "memfd_buffer/visibility_control.h"
 
 namespace memfd_buffer_backend
 {
 
 /// Low-level RAII view of a publisher or imported memfd payload.
-class MemfdBuffer
+class MEMFD_BUFFER_PUBLIC MemfdBuffer
 {
 public:
   MemfdBuffer() = default;

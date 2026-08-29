@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+#include "memfd_buffer/visibility_control.h"
+
 namespace memfd_buffer_backend
 {
 
@@ -125,7 +127,11 @@ static_assert(
 /// Publisher-side allocation and its stable physical identity.
 struct MemfdBlock
 {
+#ifdef _WIN32
+  void * memfd{nullptr};
+#else
   int memfd{-1};
+#endif
   void * mapping{nullptr};
   std::size_t mapped_size{0};
   std::size_t payload_size{0};
@@ -138,8 +144,8 @@ struct MemfdBlock
 
 class MemfdFdBroker;
 
-/// Publisher-side size-aware pool for anonymous memfd blocks.
-class MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
+/// Publisher-side size-aware pool for Linux memfd or Windows named mappings.
+class MEMFD_BUFFER_PUBLIC MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
 {
 public:
   MemfdMemoryPool();
@@ -186,7 +192,9 @@ private:
 
   std::map<std::size_t, std::vector<MemfdBlock *>> free_blocks_;
   std::vector<std::unique_ptr<MemfdBlock>> all_blocks_;
+#ifndef _WIN32
   std::unique_ptr<MemfdFdBroker> broker_;
+#endif
   mutable std::mutex mutex_;
 };
 

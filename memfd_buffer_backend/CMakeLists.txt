@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer_backend)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer_backend supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+    "memfd_buffer_backend supports Linux and Windows only "
+    "(CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -20,6 +23,7 @@ ament_auto_find_build_dependencies()
 ament_auto_add_library(${PROJECT_NAME} SHARED
   src/memfd_buffer_backend_plugin.cpp
 )
+set_target_properties(${PROJECT_NAME} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -39,14 +43,17 @@ target_link_libraries(${PROJECT_NAME}
 
 pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
 
-if(BUILD_TESTING)
-  find_package(ament_cmake_clang_tidy REQUIRED)
-  find_package(ament_lint_auto REQUIRED)
+option(ENABLE_LINT_TESTS "Enable lint tests" ON)
 
-  # The default uncrustify configuration conflicts with the C++ constructs
-  # used by this package.  Keep clang-tidy as the C++ lint test instead.
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
-  ament_lint_auto_find_test_dependencies()
+if(BUILD_TESTING)
+  if(ENABLE_LINT_TESTS)
+    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+    find_package(ament_lint_auto REQUIRED)
+
+    # The default uncrustify configuration conflicts with the C++ constructs
+    # used by this package.  Keep clang-tidy as the C++ lint test instead.
+    ament_lint_auto_find_test_dependencies()
+  endif()
 
   find_package(ament_cmake_gtest REQUIRED)
   find_package(rclcpp REQUIRED)
@@ -70,6 +77,7 @@ if(BUILD_TESTING)
   endif()
 
   ament_auto_add_library(memfd_image_dso_publisher_component SHARED
+    NO_TARGET_LINK_LIBRARIES
     test/src/memfd_image_dso_publisher_node.cpp
   )
   set_target_properties(memfd_image_dso_publisher_component PROPERTIES
@@ -87,6 +95,7 @@ if(BUILD_TESTING)
     "MemfdImageDsoPublisher")
 
   ament_auto_add_library(memfd_image_subscriber_component SHARED
+    NO_TARGET_LINK_LIBRARIES
     test/src/memfd_image_subscriber_node.cpp
   )
   target_link_libraries(memfd_image_subscriber_component
@@ -103,6 +112,7 @@ if(BUILD_TESTING)
   add_launch_test(test/test_memfd_pool_dso_fastrtps_launch.py
     TARGET test_memfd_pool_dso_fastrtps_launch
     TIMEOUT 45
+    ENV "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/ros_log"
   )
 
 endif()

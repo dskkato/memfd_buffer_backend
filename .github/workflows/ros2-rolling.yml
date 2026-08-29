@@ -7,21 +7,70 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    container:
-      image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
+  # build-and-test:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
+
+  #   steps:
+  #     - name: Build and test ROS packages
+  #       uses: ros-tooling/action-ros-ci@v0.4
+  #       with:
+  #         package-name: |
+  #           memfd_buffer_backend_msgs
+  #           memfd_buffer
+  #           memfd_buffer_backend_py
+  #           memfd_buffer_backend
+  #         target-ros2-distro: rolling
+  #         no-symlink-install: true
+  #         colcon-defaults: |
+  #           {
+  #             "build": {
+  #               "cmake-args": [
+  #                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+  #               ]
+  #             }
+  #           }
+  #         coverage-result: false
+
+  windows-build-and-test:
+    runs-on: windows-2022
 
     steps:
-      - name: Build and test ROS packages
-        uses: ros-tooling/action-ros-ci@v0.4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          package-name: |
-            memfd_buffer_backend_msgs
-            memfd_buffer
-            memfd_buffer_backend_py
-            memfd_buffer_backend
-          target-ros2-distro: rolling
-          no-symlink-install: true
-          extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          coverage-result: false
+          path: src/memfd_buffer_backend
+
+      - name: Download ROS 2 Lyrical
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ros2/ros2/releases/download/release-lyrical-20260807/ros2-lyrical-2026-08-07-windows-AMD64.zip"
+          Invoke-WebRequest $url -OutFile lyrical.zip
+          Expand-Archive lyrical.zip -DestinationPath C:\dev\lyrical
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.1
+        with:
+          manifest-path: C:\dev\lyrical\ros2-windows\pixi.toml
+
+      - name: Post setup pixi
+        shell: cmd
+        run: |
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml python C:\dev\lyrical\ros2-windows\preinstall_setup_windows.py
+
+      - name: Build
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call C:\dev\lyrical\ros2-windows\setup.bat
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon build --merge-install --cmake-args -DENABLE_LINT_TESTS=OFF
+
+      - name: Test
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call C:\dev\lyrical\ros2-windows\setup.bat
+          call install\setup.bat
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test --merge-install || exit /b 1
+          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test-result --verbose

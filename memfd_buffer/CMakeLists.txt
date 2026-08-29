@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(memfd_buffer)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer supports Linux only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
+    "memfd_buffer supports Linux and Windows only (CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -20,13 +22,21 @@ find_package(memfd_buffer_backend_msgs REQUIRED)
 find_package(rmw REQUIRED)
 find_package(rcutils REQUIRED)
 
-add_library(${PROJECT_NAME} SHARED
+set(memfd_buffer_sources
   src/memfd_buffer.cpp
   src/memfd_buffer_impl.cpp
-  src/memfd_buffer_ipc_manager.cpp
   src/memfd_memory_pool.cpp
   src/host_endpoint_manager.cpp
 )
+if(WIN32)
+  list(APPEND memfd_buffer_sources src/memfd_buffer_ipc_manager_windows.cpp)
+else()
+  list(APPEND memfd_buffer_sources src/memfd_buffer_ipc_manager.cpp)
+endif()
+
+add_library(${PROJECT_NAME} SHARED ${memfd_buffer_sources})
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE MEMFD_BUFFER_BUILDING_DLL)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -39,9 +49,12 @@ target_link_libraries(${PROJECT_NAME}
     rmw::rmw
     rcutils::rcutils
     ${memfd_buffer_backend_msgs_TARGETS}
-  PRIVATE
-    rt
 )
+if(WIN32)
+  target_link_libraries(${PROJECT_NAME} PRIVATE advapi32)
+else()
+  target_link_libraries(${PROJECT_NAME} PRIVATE rt)
+endif()
 
 install(
   DIRECTORY include/
@@ -62,15 +75,18 @@ ament_export_dependencies(rosidl_buffer memfd_buffer_backend_msgs rmw rcutils)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include/${PROJECT_NAME})
 
-if(BUILD_TESTING)
-  find_package(ament_cmake_clang_tidy REQUIRED)
-  find_package(ament_lint_auto REQUIRED)
+option(ENABLE_LINT_TESTS "Enable lint tests" ON)
 
-  # The default uncrustify configuration has conflicting rules for several
-  # C++ constructs (for example, inline function bodies and template
-  # declarations), so use clang-tidy as the C++ lint test instead.
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
-  ament_lint_auto_find_test_dependencies()
+if(BUILD_TESTING)
+  if(ENABLE_LINT_TESTS)
+    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+    find_package(ament_lint_auto REQUIRED)
+
+    # The default uncrustify configuration has conflicting rules for several
+    # C++ constructs (for example, inline function bodies and template
+    # declarations), so use clang-tidy as the C++ lint test instead.
+    ament_lint_auto_find_test_dependencies()
+  endif()
 
   find_package(ament_cmake_gtest REQUIRED)
 
@@ -81,8 +97,10 @@ if(BUILD_TESTING)
     target_link_libraries(test_memfd_buffer
       ${PROJECT_NAME}
       rosidl_buffer::rosidl_buffer
-      rt
     )
+    if(NOT WIN32)
+      target_link_libraries(test_memfd_buffer rt)
+    endif()
   endif()
 
 endif()

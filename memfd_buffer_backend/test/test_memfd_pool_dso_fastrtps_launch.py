@@ -19,6 +19,7 @@ import unittest
 
 from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable
+from launch.actions import TimerAction
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 import launch_testing
@@ -36,7 +37,7 @@ from std_msgs.msg import Bool, UInt32
 def generate_test_description():
     """Verify memfd pool sharing between a component and the backend plugin."""
     test_domain_id = str(100 + os.getpid() % 100)
-
+    fastdds_profile = os.path.join(os.path.dirname(__file__), 'fastdds_udp_localhost.xml')
     subscriber_container = ComposableNodeContainer(
         name='memfd_image_dso_subscriber_container',
         namespace='',
@@ -69,10 +70,12 @@ def generate_test_description():
 
     return LaunchDescription([
         SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'),
+        # Lyrical's bundled rmw_fastrtps still reads the legacy variable.
+        SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', fastdds_profile),
         SetEnvironmentVariable('ROS_DOMAIN_ID', test_domain_id),
         EnableRmwIsolation(),
         subscriber_container,
-        publisher_container,
+        TimerAction(period=1.0, actions=[publisher_container]),
         launch_testing.actions.ReadyToTest(),
     ])
 
@@ -160,7 +163,14 @@ class TestMemfdPoolDsoFastRTPSShutdown(unittest.TestCase):
     """Check that both component containers shut down cleanly."""
 
     def test_exit_codes(self, proc_info):
+        allowable_exit_codes = [0, -2, -15]
+        if os.name == 'nt':
+            # CTRL_C_EVENT can be reported as either signed or unsigned
+            # STATUS_CONTROL_C_EXIT depending on the Python launcher layer.
+            # component_container reports 1 after launch_testing escalates
+            # SIGINT to SIGTERM on Windows.
+            allowable_exit_codes = [0, 1, -1073741510, 3221225786]
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            allowable_exit_codes=[0, -2, -15],
+            allowable_exit_codes=allowable_exit_codes,
         )
