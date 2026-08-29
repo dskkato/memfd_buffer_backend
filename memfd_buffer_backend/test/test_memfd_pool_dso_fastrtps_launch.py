@@ -32,11 +32,22 @@ import rclpy
 from std_msgs.msg import Bool, UInt32
 
 
+# Fast DDS's Windows shared-memory transport can be unavailable on hosted
+# runners because its named mapping ACL is denied.  Set this before rclpy.init
+# runs in the test process; the launch action below applies it to child nodes.
+if os.name == 'nt':
+    os.environ.setdefault('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4')
+
+
 @pytest.mark.launch_test
 @launch_testing.markers.keep_alive
 def generate_test_description():
     """Verify memfd pool sharing between a component and the backend plugin."""
     test_domain_id = str(100 + os.getpid() % 100)
+    transport_environment = []
+    if os.name == 'nt':
+        transport_environment.append(
+            SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'))
 
     subscriber_container = ComposableNodeContainer(
         name='memfd_image_dso_subscriber_container',
@@ -70,6 +81,7 @@ def generate_test_description():
 
     return LaunchDescription([
         SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'),
+        *transport_environment,
         SetEnvironmentVariable('ROS_DOMAIN_ID', test_domain_id),
         EnableRmwIsolation(),
         subscriber_container,
