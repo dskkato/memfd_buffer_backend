@@ -50,7 +50,10 @@ if(BUILD_TESTING)
     find_program(CLANG_TIDY_EXECUTABLE
       NAMES clang-tidy clang-tidy-10 clang-tidy-11 clang-tidy-6.0
     )
-    if(CLANG_TIDY_EXECUTABLE)
+    # Visual Studio generators do not produce compile_commands.json, even
+    # when CMAKE_EXPORT_COMPILE_COMMANDS is enabled.  Do not register a
+    # clang-tidy test that cannot run in that configuration.
+    if(CLANG_TIDY_EXECUTABLE AND EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
       find_package(ament_cmake_clang_tidy REQUIRED)
       set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
     else()
