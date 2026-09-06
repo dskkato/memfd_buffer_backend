@@ -14,10 +14,10 @@
 
 """Zero-copy Python access to memfd-backed ROS 2 buffers."""
 
-from rpyutils import add_dll_directories_from_env
-
 from typing import Any
 from typing import Optional
+
+from rpyutils import add_dll_directories_from_env
 
 # Since Python 3.8, on Windows we should ensure DLL directories are explicitly
 # added to the search path before importing native extensions.
