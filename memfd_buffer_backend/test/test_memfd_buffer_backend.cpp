@@ -34,7 +34,7 @@ rmw_topic_endpoint_info_t endpoint()
   return result;
 }
 
-TEST(MemfdBufferBackendTest, MetadataRequiresSameHostAndEuid)
+TEST(MemfdBufferBackendTest, MetadataRequiresSamePlatformLocality)
 {
   memfd_buffer_backend::MemfdBufferBackend backend;
   const auto info = endpoint();
@@ -46,7 +46,7 @@ TEST(MemfdBufferBackendTest, MetadataRequiresSameHostAndEuid)
   EXPECT_FALSE(backend.on_discovering_endpoint(info, {}, supported).first);
 }
 
-TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
+TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesPlatformIpcAndMappingCache)
 {
   memfd_buffer_backend::MemfdBufferBackend backend;
   const auto info = endpoint();
@@ -68,6 +68,11 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
     static_cast<const memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor *>(descriptor.get());
   ASSERT_EQ(128u, typed_descriptor->size);
   ASSERT_NE(0u, typed_descriptor->ipc_uid);
+#ifdef _WIN32
+  EXPECT_EQ(0u, typed_descriptor->memfd_socket_path.rfind("Local\\rosidl_memfd_buffer_", 0));
+#else
+  EXPECT_EQ(0u, typed_descriptor->memfd_socket_path.rfind("/tmp/memfd_buffer_", 0));
+#endif
   EXPECT_EQ(
     memfd_buffer_backend::kMemfdPayloadOffset + typed_descriptor->size,
     typed_descriptor->memfd_block_size);
@@ -99,6 +104,11 @@ TEST(MemfdBufferBackendTest, DescriptorRoundTripUsesBrokerAndMappingCache)
   auto * second_cpu = dynamic_cast<rosidl::CpuBufferImpl<std::uint8_t> *>(second_copy.get());
   ASSERT_NE(nullptr, second_cpu);
   EXPECT_EQ(first_cpu->get_storage(), second_cpu->get_storage());
+
+  auto stale_descriptor = *typed_descriptor;
+  ++stale_descriptor.ipc_uid;
+  EXPECT_THROW(
+    backend.from_descriptor_with_endpoint(&stale_descriptor, info), std::runtime_error);
 }
 
 TEST(MemfdBufferBackendTest, IncompatiblePeerFallsBack)

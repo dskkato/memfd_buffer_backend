@@ -19,5 +19,5 @@ string element_type_name       # Type name for validation (e.g., "h" for uint8_t
 int32 memfd_pid                # Publisher process ID
 uint32 memfd_block_id          # Block ID in the publisher's pool
 uint64 memfd_block_size        # Block size (for import mapping)
-string memfd_socket_path       # Unix socket path to receive block FD
+string memfd_socket_path       # Linux FD broker path or Windows named mapping object name
 uint64 ipc_uid                 # Unique ID per publish for staleness detection

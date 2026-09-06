@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+#include "memfd_buffer/visibility_control.h"
+
 namespace memfd_buffer_backend
 {
 
@@ -125,7 +127,8 @@ static_assert(
 /// Publisher-side allocation and its stable physical identity.
 struct MemfdBlock
 {
-  int memfd{-1};
+  // An fd on Linux or a HANDLE represented as intptr_t on Windows.
+  std::intptr_t memfd{-1};
   void * mapping{nullptr};
   std::size_t mapped_size{0};
   std::size_t payload_size{0};
@@ -138,8 +141,8 @@ struct MemfdBlock
 
 class MemfdFdBroker;
 
-/// Publisher-side size-aware pool for anonymous memfd blocks.
-class MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
+/// Publisher-side size-aware pool for Linux memfd or Windows named mappings.
+class MEMFD_BUFFER_PUBLIC MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
 {
 public:
   MemfdMemoryPool();
@@ -166,7 +169,7 @@ public:
   /// Record that a descriptor for the current generation was created.
   void mark_published(MemfdBlock * block);
 
-  /// Register the block's memfd with the reusable FD broker.
+  /// Register the block's backing object with the platform IPC broker.
   std::string register_block_for_ipc(MemfdBlock * block);
 
   /// Find the block containing a publisher-side payload pointer.

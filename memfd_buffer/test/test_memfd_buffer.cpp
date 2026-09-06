@@ -17,7 +17,15 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "memfd_buffer/memfd_buffer_api.hpp"
 #include "memfd_buffer/memfd_buffer_impl.hpp"
@@ -196,5 +204,30 @@ TEST(MemfdBufferTest, PoolUsesSizeBucketsAndReaderProtection)
   EXPECT_EQ(first, reused);
   pool->free(reused);
 }
+
+#ifdef _WIN32
+TEST(MemfdBufferTest, NamedMappingIsRemovedAfterLastHandleCloses)
+{
+  std::string mapping_name;
+  {
+    auto pool = std::make_shared<memfd_buffer_backend::MemfdMemoryPool>();
+    auto * block = pool->allocate(32);
+    ASSERT_NE(nullptr, block);
+    ASSERT_FALSE(block->socket_path.empty());
+    mapping_name = block->socket_path;
+    const std::wstring wide_name(mapping_name.begin(), mapping_name.end());
+    HANDLE probe = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.c_str());
+    ASSERT_NE(nullptr, probe);
+    EXPECT_NE(FALSE, CloseHandle(probe));
+  }
+
+  const std::wstring wide_name(mapping_name.begin(), mapping_name.end());
+  HANDLE stale = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.c_str());
+  EXPECT_EQ(nullptr, stale);
+  if (stale != nullptr) {
+    (void)CloseHandle(stale);
+  }
+}
+#endif
 
 }  // namespace
