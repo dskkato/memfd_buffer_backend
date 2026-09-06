@@ -37,7 +37,6 @@ from std_msgs.msg import Bool, UInt32
 def generate_test_description():
     """Verify memfd pool sharing between a component and the backend plugin."""
     test_domain_id = str(100 + os.getpid() % 100)
-    fastdds_profile = os.path.join(os.path.dirname(__file__), 'fastdds_udp_localhost.xml')
     subscriber_container = ComposableNodeContainer(
         name='memfd_image_dso_subscriber_container',
         namespace='',
@@ -70,8 +69,6 @@ def generate_test_description():
 
     return LaunchDescription([
         SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'),
-        # Lyrical's bundled rmw_fastrtps still reads the legacy variable.
-        SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', fastdds_profile),
         SetEnvironmentVariable('ROS_DOMAIN_ID', test_domain_id),
         EnableRmwIsolation(),
         subscriber_container,
