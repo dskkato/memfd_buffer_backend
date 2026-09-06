@@ -16,6 +16,7 @@
   <depend>python3-dev</depend>
   <depend>rosidl_buffer</depend>
   <exec_depend>rosidl_buffer_py</exec_depend>
+  <exec_depend>rpyutils</exec_depend>
 
   <test_depend>ament_cmake_clang_tidy</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>
