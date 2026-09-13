@@ -19,7 +19,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <utility>
 
 #include "memfd_buffer/memfd_buffer_handle.hpp"
 #include "memfd_buffer/memfd_memory_pool.hpp"

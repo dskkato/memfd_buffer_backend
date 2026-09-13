@@ -16,7 +16,6 @@
 #define MEMFD_BUFFER__MEMFD_MEMORY_POOL_HPP_
 
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
