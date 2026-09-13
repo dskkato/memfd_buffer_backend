@@ -1,8 +1,13 @@
-name: ROS 2 Rolling CI
+name: ROS 2 Lyrical CI
 
 on:
   pull_request:
     branches:
+      - lyrical
+      - rolling
+  push:
+    branches:
+      - lyrical
       - rolling
   workflow_dispatch:
 
@@ -10,7 +15,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     container:
-      image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
+      image: rostooling/setup-ros-docker:ubuntu-resolute-ros-lyrical-ros-base-latest
 
     steps:
       - name: Build and test ROS packages
@@ -21,7 +26,7 @@ jobs:
             memfd_buffer
             memfd_buffer_backend_py
             memfd_buffer_backend
-          target-ros2-distro: rolling
+          target-ros2-distro: lyrical
           no-symlink-install: true
           extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           coverage-result: false
