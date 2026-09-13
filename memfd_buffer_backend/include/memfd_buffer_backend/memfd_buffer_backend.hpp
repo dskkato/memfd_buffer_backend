@@ -38,7 +38,7 @@ public:
   MemfdBufferBackend();
   ~MemfdBufferBackend() override = default;
 
-  std::string get_backend_type() const override { return "memfd"; }
+  std::string get_backend_type() const override {return "memfd";}
 
   std::string get_backend_metadata() const override;
 
@@ -69,7 +69,7 @@ private:
       std::copy(raw, raw + RMW_GID_STORAGE_SIZE, data.begin());
     }
 
-    bool operator==(const GidKey & other) const { return data == other.data; }
+    bool operator==(const GidKey & other) const {return data == other.data;}
   };
 
   struct GidKeyHash

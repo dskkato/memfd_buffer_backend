@@ -50,7 +50,8 @@ HostEndpointManager::HostEndpointManager()
     std::vector<std::uint8_t> storage(required);
     if (
       required > 0 &&
-      GetTokenInformation(token, TokenUser, storage.data(), required, &required) != FALSE) {
+      GetTokenInformation(token, TokenUser, storage.data(), required, &required) != FALSE)
+    {
       const auto * token_user = reinterpret_cast<const TOKEN_USER *>(storage.data());
       char * sid_text = nullptr;
       if (ConvertSidToStringSidA(token_user->User.Sid, &sid_text) != FALSE) {

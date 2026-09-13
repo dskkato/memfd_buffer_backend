@@ -97,7 +97,8 @@ py::object allocate_buffer_internal(std::size_t byte_count)
 class NativeReadAccess
 {
 public:
-  explicit NativeReadAccess(py::object owner) : owner_(std::move(owner))
+  explicit NativeReadAccess(py::object owner)
+  : owner_(std::move(owner))
   {
     buffer_ = get_buffer_ptr(owner_);
     byte_count_ = buffer_->size();
@@ -131,9 +132,9 @@ public:
     }
   }
 
-  bool closed() const { return closed_; }
-  std::size_t byte_count() const { return byte_count_; }
-  void add_export() { ++exports_; }
+  bool closed() const {return closed_;}
+  std::size_t byte_count() const {return byte_count_;}
+  void add_export() {++exports_;}
   void remove_export() noexcept
   {
     if (exports_ != 0) {
@@ -153,7 +154,8 @@ private:
 class NativeWriteAccess
 {
 public:
-  explicit NativeWriteAccess(py::object owner) : owner_(std::move(owner))
+  explicit NativeWriteAccess(py::object owner)
+  : owner_(std::move(owner))
   {
     buffer_ = get_buffer_ptr(owner_);
     byte_count_ = buffer_->size();
@@ -187,9 +189,9 @@ public:
     }
   }
 
-  bool closed() const { return closed_; }
-  std::size_t byte_count() const { return byte_count_; }
-  void add_export() { ++exports_; }
+  bool closed() const {return closed_;}
+  std::size_t byte_count() const {return byte_count_;}
+  void add_export() {++exports_;}
   void remove_export() noexcept
   {
     if (exports_ != 0) {
@@ -206,7 +208,7 @@ private:
   bool closed_{false};
 };
 
-template <typename AccessT>
+template<typename AccessT>
 struct BufferCallbacks
 {
   static getbufferproc original_getbuffer;
@@ -238,19 +240,20 @@ struct BufferCallbacks
   }
 };
 
-template <typename AccessT>
+template<typename AccessT>
 getbufferproc BufferCallbacks<AccessT>::original_getbuffer = nullptr;
 
-template <typename AccessT>
+template<typename AccessT>
 releasebufferproc BufferCallbacks<AccessT>::original_releasebuffer = nullptr;
 
-template <typename AccessT>
+template<typename AccessT>
 void install_tracked_buffer_callbacks(const py::object & type_object)
 {
   auto * type = reinterpret_cast<PyTypeObject *>(type_object.ptr());
   if (
     type->tp_as_buffer == nullptr || type->tp_as_buffer->bf_getbuffer == nullptr ||
-    type->tp_as_buffer->bf_releasebuffer == nullptr) {
+    type->tp_as_buffer->bf_releasebuffer == nullptr)
+  {
     throw std::runtime_error("pybind11 did not install buffer protocol callbacks");
   }
   BufferCallbacks<AccessT>::original_getbuffer = type->tp_as_buffer->bf_getbuffer;
@@ -271,17 +274,17 @@ PYBIND11_MODULE(_memfd_buffer_py, module)
 
   py::class_<NativeReadAccess> read_class(module, "_NativeReadAccess", py::buffer_protocol());
   read_class.def(py::init<py::object>())
-    .def_buffer(&NativeReadAccess::buffer_info)
-    .def("close", &NativeReadAccess::close)
-    .def_property_readonly("closed", &NativeReadAccess::closed)
-    .def_property_readonly("byte_count", &NativeReadAccess::byte_count);
+  .def_buffer(&NativeReadAccess::buffer_info)
+  .def("close", &NativeReadAccess::close)
+  .def_property_readonly("closed", &NativeReadAccess::closed)
+  .def_property_readonly("byte_count", &NativeReadAccess::byte_count);
 
   py::class_<NativeWriteAccess> write_class(module, "_NativeWriteAccess", py::buffer_protocol());
   write_class.def(py::init<py::object>())
-    .def_buffer(&NativeWriteAccess::buffer_info)
-    .def("close", &NativeWriteAccess::close)
-    .def_property_readonly("closed", &NativeWriteAccess::closed)
-    .def_property_readonly("byte_count", &NativeWriteAccess::byte_count);
+  .def_buffer(&NativeWriteAccess::buffer_info)
+  .def("close", &NativeWriteAccess::close)
+  .def_property_readonly("closed", &NativeWriteAccess::closed)
+  .def_property_readonly("byte_count", &NativeWriteAccess::byte_count);
 
   memfd_buffer_backend::install_tracked_buffer_callbacks<NativeReadAccess>(read_class);
   memfd_buffer_backend::install_tracked_buffer_callbacks<NativeWriteAccess>(write_class);

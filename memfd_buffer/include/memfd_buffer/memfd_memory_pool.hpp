@@ -74,14 +74,16 @@ inline bool try_acquire_memfd_reader(MemfdControlHeader * control)
   }
 
   auto value = control->reader_state.load(std::memory_order_acquire);
-  for (;;) {
+  for (;; ) {
     if (
       (value & kMemfdReuseClaimed) != 0 ||
-      (value & kMemfdReaderCountMask) == kMemfdReaderCountMask) {
+      (value & kMemfdReaderCountMask) == kMemfdReaderCountMask)
+    {
       return false;
     }
     if (control->reader_state.compare_exchange_weak(
-          value, value + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+          value, value + 1, std::memory_order_acq_rel, std::memory_order_acquire))
+    {
       return true;
     }
   }
@@ -175,7 +177,7 @@ public:
   /// Find the block containing a publisher-side payload pointer.
   MemfdBlock * find_block_for_ptr(const void * ptr) const;
 
-  bool is_ipc_capable() const { return ipc_capable_; }
+  bool is_ipc_capable() const {return ipc_capable_;}
 
 private:
   MemfdBlock * create_block(std::size_t payload_size);

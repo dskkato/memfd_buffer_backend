@@ -44,11 +44,8 @@ install(TARGETS _memfd_buffer_py
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
 
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   find_package(ament_lint_auto REQUIRED)
 
-  # The default uncrustify configuration has conflicting rules for several
-  # C++ constructs, so use clang-tidy as the C++ lint test instead.
   ament_lint_auto_find_test_dependencies()
 
   ament_add_pytest_test(test_memfd_buffer_py

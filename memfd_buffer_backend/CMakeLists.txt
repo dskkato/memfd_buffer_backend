@@ -44,11 +44,8 @@ target_link_libraries(${PROJECT_NAME}
 pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
 
 if(BUILD_TESTING)
-  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
   find_package(ament_lint_auto REQUIRED)
 
-  # The default uncrustify configuration conflicts with the C++ constructs
-  # used by this package.  Keep clang-tidy as the C++ lint test instead.
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)

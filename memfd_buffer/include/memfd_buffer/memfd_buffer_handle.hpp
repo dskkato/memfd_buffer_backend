@@ -60,7 +60,7 @@ public:
   ReadHandle & operator=(ReadHandle && other) noexcept;
   ~ReadHandle();
 
-  const std::uint8_t * get_ptr() const { return data_ptr_; }
+  const std::uint8_t * get_ptr() const {return data_ptr_;}
 
   std::shared_ptr<rosidl::Buffer<std::uint8_t>> get_promoted_buffer() const
   {
@@ -105,7 +105,7 @@ public:
   WriteHandle & operator=(WriteHandle && other) noexcept;
   ~WriteHandle();
 
-  std::uint8_t * get_ptr() { return data_ptr_; }
+  std::uint8_t * get_ptr() {return data_ptr_;}
 
   std::shared_ptr<rosidl::Buffer<std::uint8_t>> get_promoted_buffer() const
   {

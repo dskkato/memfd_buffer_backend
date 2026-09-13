@@ -52,7 +52,7 @@ inline std::shared_ptr<rosidl::Buffer<std::uint8_t>> allocate_memfd_buffer_share
     std::make_unique<MemfdBufferImpl<std::uint8_t>>(byte_count));
 }
 
-template <typename T>
+template<typename T>
 inline MemfdBufferImpl<T> * memfd_impl_of(rosidl::Buffer<T> & buffer)
 {
   return dynamic_cast<MemfdBufferImpl<T> *>(buffer.get_impl());
@@ -67,7 +67,7 @@ inline MemfdBufferImpl<T> * memfd_impl_of(rosidl::Buffer<T> & buffer)
 /// convert or replace buffers from another backend. Rejecting those buffers is
 /// intentional: a handle for a newly allocated, detached memfd buffer would
 /// not be reflected by the original buffer during message publication.
-template <typename T>
+template<typename T>
 WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 {
   auto * impl = buffer.get_impl();
@@ -91,7 +91,7 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 /// is already memfd-backed, a read handle for that allocation is returned directly.
 /// Otherwise, a fresh memfd-backed \c rosidl::Buffer<std::uint8_t> of the same byte
 /// size is allocated and the source contents are copied synchronously
-template <typename T>
+template<typename T>
 ReadHandle from_input_buffer(const rosidl::Buffer<T> & buffer)
 {
   const auto * impl = buffer.get_impl();

@@ -154,7 +154,8 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
   if (
     descriptor.memfd_pid <= 0 || descriptor.memfd_socket_path.empty() || descriptor.ipc_uid == 0 ||
     descriptor.memfd_block_size < kMemfdPayloadOffset ||
-    descriptor.size > descriptor.memfd_block_size - kMemfdPayloadOffset) {
+    descriptor.size > descriptor.memfd_block_size - kMemfdPayloadOffset)
+  {
     throw std::runtime_error("invalid memfd descriptor metadata");
   }
 
@@ -167,15 +168,15 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
     throw std::runtime_error("stale memfd descriptor raced with block reuse");
   }
 
-  auto reader_release = [imported](std::uint8_t *) { imported->release_reader(); };
+  auto reader_release = [imported](std::uint8_t *) {imported->release_reader();};
   MemfdBuffer buffer(
     imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
     descriptor.memfd_block_id, descriptor.memfd_block_size, false);
   auto result = std::make_unique<MemfdBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
   return {result.release(), [](void * ptr) {
-            delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
-          }};
+      delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
+    }};
 }
 
 }  // namespace memfd_buffer_backend

@@ -45,9 +45,9 @@ struct CacheKeyHash
   {
     std::size_t result = std::hash<std::int32_t>{}(key.pid);
     result ^= std::hash<std::uint32_t>{}(key.block_id) + 0x9e3779b9 +
-      (result << 6) + (result >> 2);
+    (result << 6) + (result >> 2);
     result ^= std::hash<std::string>{}(key.ipc_name) + 0x9e3779b9 +
-      (result << 6) + (result >> 2);
+    (result << 6) + (result >> 2);
     return result;
   }
 };
@@ -73,7 +73,8 @@ void validate_mapping(
   const MemfdControlHeader * control = block.control();
   if (
     control == nullptr || mapped_size != block.mapped_size() || mapped_size < kMemfdPayloadOffset ||
-    payload_size > mapped_size - kMemfdPayloadOffset) {
+    payload_size > mapped_size - kMemfdPayloadOffset)
+  {
     throw std::runtime_error("invalid shared memory mapping size");
   }
   if (control->magic != kMemfdControlMagic || control->abi_version != kMemfdControlAbiVersion) {
@@ -142,7 +143,8 @@ std::shared_ptr<MemfdImportedBlock> MemfdHandleCache::import_block(
 {
   if (
     ipc_name.empty() || mapped_size < kMemfdPayloadOffset ||
-    mapped_size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+    mapped_size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+  {
     throw std::runtime_error("invalid shared memory descriptor metadata");
   }
 

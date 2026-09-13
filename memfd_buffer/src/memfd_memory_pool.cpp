@@ -31,12 +31,13 @@ std::uint64_t monotonic_time_us()
 {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now().time_since_epoch())
-                                      .count());
+         .count());
 }
 
 }  // namespace
 
-MemfdMemoryPool::MemfdMemoryPool() : broker_(std::make_unique<MemfdFdBroker>()) {}
+MemfdMemoryPool::MemfdMemoryPool()
+: broker_(std::make_unique<MemfdFdBroker>()) {}
 
 MemfdMemoryPool::~MemfdMemoryPool()
 {
@@ -116,7 +117,7 @@ std::function<void(std::uint8_t *)> MemfdMemoryPool::deleter(MemfdBlock * block)
   } catch (const std::bad_weak_ptr &) {
     throw std::runtime_error("MemfdMemoryPool must be owned by shared_ptr");
   }
-  return [self, block](std::uint8_t *) { self->free(block); };
+  return [self, block](std::uint8_t *) {self->free(block);};
 }
 
 std::uint64_t MemfdMemoryPool::assign_uid(MemfdBlock * block)

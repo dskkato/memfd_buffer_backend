@@ -41,7 +41,8 @@ struct MemfdFdBroker::Impl
 {
 };
 
-MemfdFdBroker::MemfdFdBroker() : impl_(std::make_unique<Impl>()) {}
+MemfdFdBroker::MemfdFdBroker()
+: impl_(std::make_unique<Impl>()) {}
 
 MemfdFdBroker::~MemfdFdBroker() = default;
 

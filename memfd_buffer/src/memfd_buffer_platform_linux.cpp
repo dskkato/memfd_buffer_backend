@@ -70,7 +70,8 @@ int create_fd_server_socket(const std::string & path)
   const sockaddr_un address = unix_address(path);
   if (
     bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
-    listen(socket, 32) != 0 || chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
+    listen(socket, 32) != 0 || chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0)
+  {
     close(socket);
     unlink(path.c_str());
     return -1;
@@ -129,7 +130,8 @@ int receive_fd_from_socket(const std::string & socket_path)
   cmsghdr * cmsg = CMSG_FIRSTHDR(&message);
   if (
     cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS ||
-    cmsg->cmsg_len < CMSG_LEN(sizeof(int))) {
+    cmsg->cmsg_len < CMSG_LEN(sizeof(int)))
+  {
     throw std::runtime_error("memfd broker returned an invalid control message");
   }
   int fd = -1;
@@ -173,7 +175,7 @@ struct MemfdFdBroker::Impl
       thread_ = std::thread(&FDDispatcher::run, this);
     }
 
-    ~FDDispatcher() { stop(); }
+    ~FDDispatcher() {stop();}
 
     bool add_socket(int server_socket, int fd_to_serve)
     {
@@ -251,7 +253,7 @@ struct MemfdFdBroker::Impl
       }
     }
 
-  private:
+private:
     void run()
     {
       epoll_event events[16]{};
@@ -311,7 +313,8 @@ struct MemfdFdBroker::Impl
   std::mutex mutex;
 };
 
-MemfdFdBroker::MemfdFdBroker() : impl_(std::make_unique<Impl>()) {}
+MemfdFdBroker::MemfdFdBroker()
+: impl_(std::make_unique<Impl>()) {}
 
 MemfdFdBroker::~MemfdFdBroker()
 {
@@ -339,12 +342,13 @@ std::string MemfdFdBroker::register_block(MemfdBlock * block)
   // Include the fd in addition to the process and block IDs. A process can
   // own more than one pool, and each pool starts its block IDs at zero.
   const std::string path = "/tmp/memfd_buffer_" + std::to_string(geteuid()) + "_" +
-                           std::to_string(getpid()) + "_" + std::to_string(block->block_id) +
-                           "_" + std::to_string(static_cast<int>(block->memfd)) + ".sock";
+    std::to_string(getpid()) + "_" + std::to_string(block->block_id) +
+    "_" + std::to_string(static_cast<int>(block->memfd)) + ".sock";
   const int server_socket = create_fd_server_socket(path);
   if (
     server_socket < 0 ||
-    !impl_->dispatcher->add_socket(server_socket, static_cast<int>(block->memfd))) {
+    !impl_->dispatcher->add_socket(server_socket, static_cast<int>(block->memfd)))
+  {
     if (server_socket >= 0) {
       close(server_socket);
     }
@@ -391,7 +395,8 @@ MemfdPlatformMapping import_platform_mapping(const std::string & ipc_name, std::
   };
   if (
     fstat(fd, &stat_buffer) != 0 || stat_buffer.st_size < 0 ||
-    static_cast<std::uint64_t>(stat_buffer.st_size) != mapped_size) {
+    static_cast<std::uint64_t>(stat_buffer.st_size) != mapped_size)
+  {
     close(fd);
     throw std::runtime_error("memfd size does not match descriptor message");
   }

@@ -53,13 +53,13 @@ public:
 
   void hold_reader_reference();
 
-  std::size_t size() const { return size_; }
-  std::uint8_t * get_ptr() { return data_ptr_; }
-  const std::uint8_t * get_ptr() const { return data_ptr_; }
-  MemfdControlHeader * control() const { return control_; }
-  std::uint32_t block_id() const { return block_id_; }
-  std::uint64_t mapped_size() const { return mapped_size_; }
-  bool writable() const { return writable_; }
+  std::size_t size() const {return size_;}
+  std::uint8_t * get_ptr() {return data_ptr_;}
+  const std::uint8_t * get_ptr() const {return data_ptr_;}
+  MemfdControlHeader * control() const {return control_;}
+  std::uint32_t block_id() const {return block_id_;}
+  std::uint64_t mapped_size() const {return mapped_size_;}
+  bool writable() const {return writable_;}
 
 private:
   void reset() noexcept;

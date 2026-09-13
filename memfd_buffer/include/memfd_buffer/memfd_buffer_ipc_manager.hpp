@@ -58,9 +58,9 @@ public:
   MemfdImportedBlock(const MemfdImportedBlock &) = delete;
   MemfdImportedBlock & operator=(const MemfdImportedBlock &) = delete;
 
-  MemfdControlHeader * control() const { return control_; }
+  MemfdControlHeader * control() const {return control_;}
   std::uint8_t * payload() const;
-  std::size_t mapped_size() const { return mapped_size_; }
+  std::size_t mapped_size() const {return mapped_size_;}
 
   void acquire_reader();
   void release_reader() noexcept;
