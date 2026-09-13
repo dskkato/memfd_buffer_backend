@@ -16,13 +16,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MemfdBufferDescriptor.msg"
 )
 
-option(ENABLE_LINT_TESTS "Enable lint tests" ON)
-
 if(BUILD_TESTING)
-  if(ENABLE_LINT_TESTS)
-    find_package(ament_lint_auto REQUIRED)
-    ament_lint_auto_find_test_dependencies()
-  endif()
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()

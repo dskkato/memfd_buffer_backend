@@ -1,4 +1,4 @@
-name: ROS 2 Rolling CI
+name: ROS 2 Lyrical CI
 
 on:
   pull_request:
@@ -6,71 +6,150 @@ on:
       - rolling
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  ROS_DISTRO: lyrical
+  ROS_RELEASE_TAG: release-lyrical-20260807
+  ROS_ARCHIVE: ros2-lyrical-2026-08-07-windows-AMD64.zip
+
 jobs:
-  # build-and-test:
-  #   runs-on: ubuntu-latest
-  #   container:
-  #     image: rostooling/setup-ros-docker:ubuntu-resolute-ros-rolling-ros-base-latest
-
-  #   steps:
-  #     - name: Build and test ROS packages
-  #       uses: ros-tooling/action-ros-ci@v0.4
-  #       with:
-  #         package-name: |
-  #           memfd_buffer_backend_msgs
-  #           memfd_buffer
-  #           memfd_buffer_backend_py
-  #           memfd_buffer_backend
-  #         target-ros2-distro: rolling
-  #         no-symlink-install: true
-  #         colcon-defaults: |
-  #           {
-  #             "build": {
-  #               "cmake-args": [
-  #                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
-  #               ]
-  #             }
-  #           }
-  #         coverage-result: false
-
   windows-build-and-test:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v5
         with:
           path: src/memfd_buffer_backend
 
-      - name: Download ROS 2 Lyrical
+      - name: Cache ROS 2 Lyrical archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ros2_lyrical/${{ env.ROS_ARCHIVE }}
+          key: ros2-${{ runner.os }}-${{ env.ROS_RELEASE_TAG }}-${{ env.ROS_ARCHIVE }}
+
+      - name: Download ROS 2 Lyrical archive
         shell: pwsh
         run: |
-          $url = "https://github.com/ros2/ros2/releases/download/release-lyrical-20260807/ros2-lyrical-2026-08-07-windows-AMD64.zip"
-          Invoke-WebRequest $url -OutFile lyrical.zip
-          Expand-Archive lyrical.zip -DestinationPath C:\dev\lyrical
+          $ErrorActionPreference = 'Stop'
+          $ros2Prefix = Join-Path $env:RUNNER_TEMP 'ros2_lyrical'
+          $releaseUrl = "https://github.com/ros2/ros2/releases/download/$env:ROS_RELEASE_TAG/$env:ROS_ARCHIVE"
+          $archivePath = Join-Path $ros2Prefix $env:ROS_ARCHIVE
+          New-Item -ItemType Directory -Force -Path $ros2Prefix | Out-Null
+          if (-not (Test-Path $archivePath)) {
+            Invoke-WebRequest -Uri $releaseUrl -OutFile $archivePath
+          } else {
+            Write-Host "Using cached ROS 2 archive: $archivePath"
+          }
+          Expand-Archive -Path $archivePath -DestinationPath $ros2Prefix -Force
+          $ros2Root = Join-Path $ros2Prefix 'ros2-windows'
+          "ROS2_ROOT=$ros2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PIXI_MANIFEST=$(Join-Path $ros2Root 'pixi.toml')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Enable clang-tidy in pixi environment
+        shell: pwsh
+        run: |
+          # The Windows archive pins clang-format, but clang-tools also
+          # provides clang-tidy required by ament_cmake_clang_tidy.
+          $manifest = Get-Content -Raw -Path $env:PIXI_MANIFEST
+          $oldDependency = 'clang-format = "==18.1.8"'
+          $newDependency = 'clang-tools = "==18.1.8"'
+          if (-not $manifest.Contains($oldDependency)) {
+            throw "Could not find the pinned clang-format dependency in $env:PIXI_MANIFEST"
+          }
+          $manifest = $manifest.Replace($oldDependency, $newDependency)
+          Set-Content -Path $env:PIXI_MANIFEST -Value $manifest -NoNewline
 
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.10.1
         with:
-          manifest-path: C:\dev\lyrical\ros2-windows\pixi.toml
+          manifest-path: ${{ runner.temp }}/ros2_lyrical/ros2-windows/pixi.toml
+          cache: false
+          run-install: false
 
-      - name: Post setup pixi
+      - name: Cache pixi environment
+        id: pixi-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ros2_lyrical/ros2-windows/.pixi
+          key: pixi-${{ runner.os }}-${{ env.ROS_RELEASE_TAG }}-clang-tools-v1
+
+      - name: Install pixi environment
+        if: steps.pixi-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: pixi install --manifest-path "%PIXI_MANIFEST%"
+
+      - name: Prepare ROS 2 pixi environment
         shell: cmd
         run: |
-          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml python C:\dev\lyrical\ros2-windows\preinstall_setup_windows.py
+          pixi run --manifest-path "%PIXI_MANIFEST%" python "%ROS2_ROOT%\preinstall_setup_windows.py"
 
-      - name: Build
+      - name: Patch ament_lint executable lookup on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sitePackages = Join-Path $env:ROS2_ROOT 'Lib/site-packages'
+          if (-not (Test-Path (Join-Path $sitePackages 'ament_clang_tidy/main.py'))) {
+            throw "Could not find the ROS ament_lint Python packages in $sitePackages"
+          }
+          $patchFile = Join-Path $env:GITHUB_WORKSPACE 'src/memfd_buffer_backend/.github/patches/ament_lint-windows-executable-lookup.patch'
+          Push-Location $sitePackages
+          try {
+            git apply --check -p1 $patchFile
+            git apply -p1 $patchFile
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build packages
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          call C:\dev\lyrical\ros2-windows\setup.bat
-          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon build --merge-install --cmake-args -DENABLE_LINT_TESTS=OFF
+          call "%ROS2_ROOT%\setup.bat"
+          pixi run --manifest-path "%PIXI_MANIFEST%" colcon --log-base D:\mfb-logs build --merge-install --build-base D:\mfb-build --install-base D:\mfb-install --event-handlers console_direct+ --cmake-args -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-      - name: Test
+      - name: Run Windows tests with Fast DDS
         shell: cmd
+        env:
+          RMW_IMPLEMENTATION: rmw_fastrtps_cpp
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          call C:\dev\lyrical\ros2-windows\setup.bat
-          call install\setup.bat
-          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test --merge-install || exit /b 1
-          pixi run --manifest-path C:\dev\lyrical\ros2-windows\pixi.toml colcon test-result --verbose
+          call "%ROS2_ROOT%\setup.bat"
+          call D:\mfb-install\setup.bat
+          pixi run --manifest-path "%PIXI_MANIFEST%" colcon --log-base D:\mfb-logs test --merge-install --build-base D:\mfb-build --install-base D:\mfb-install --test-result-base D:\mfb-test-results --event-handlers console_direct+ || exit /b 1
+          pixi run --manifest-path "%PIXI_MANIFEST%" colcon test-result --test-result-base D:\mfb-test-results --verbose
+
+      - name: Collect colcon logs
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
+
+          foreach ($source in @('D:\mfb-logs', 'D:\mfb-test-results')) {
+            if (Test-Path $source) {
+              Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+            }
+          }
+
+          $buildRoot = 'D:\mfb-build'
+          if (Test-Path $buildRoot) {
+            $buildArtifactRoot = Join-Path $artifactRoot 'build'
+            foreach ($testResults in Get-ChildItem -Path $buildRoot -Filter test_results -Directory -Recurse) {
+              $relativePath = $testResults.FullName.Substring($buildRoot.Length).TrimStart('\\')
+              $destination = Join-Path $buildArtifactRoot $relativePath
+              New-Item -ItemType Directory -Force -Path $destination | Out-Null
+              Copy-Item -Path $testResults.FullName -Destination $destination -Recurse -Force
+            }
+          }
+
+      - name: Upload colcon logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colcon-logs-windows
+          path: ci-artifacts/
+          if-no-files-found: ignore

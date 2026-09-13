@@ -76,18 +76,14 @@ ament_export_dependencies(rosidl_buffer memfd_buffer_backend_msgs rmw rcutils)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include/${PROJECT_NAME})
 
-option(ENABLE_LINT_TESTS "Enable lint tests" ON)
-
 if(BUILD_TESTING)
-  if(ENABLE_LINT_TESTS)
-    set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
-    find_package(ament_lint_auto REQUIRED)
+  set(AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
+  find_package(ament_lint_auto REQUIRED)
 
-    # The default uncrustify configuration has conflicting rules for several
-    # C++ constructs (for example, inline function bodies and template
-    # declarations), so use clang-tidy as the C++ lint test instead.
-    ament_lint_auto_find_test_dependencies()
-  endif()
+  # The default uncrustify configuration has conflicting rules for several
+  # C++ constructs (for example, inline function bodies and template
+  # declarations), so use clang-tidy as the C++ lint test instead.
+  ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
 
