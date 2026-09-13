@@ -16,7 +16,6 @@
 #define MEMFD_BUFFER__MEMFD_MEMORY_POOL_HPP_
 
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -26,6 +25,8 @@
 #include <random>
 #include <string>
 #include <vector>
+
+#include "memfd_buffer/visibility_control.h"
 
 namespace memfd_buffer_backend
 {
@@ -72,14 +73,16 @@ inline bool try_acquire_memfd_reader(MemfdControlHeader * control)
   }
 
   auto value = control->reader_state.load(std::memory_order_acquire);
-  for (;;) {
+  for (;; ) {
     if (
       (value & kMemfdReuseClaimed) != 0 ||
-      (value & kMemfdReaderCountMask) == kMemfdReaderCountMask) {
+      (value & kMemfdReaderCountMask) == kMemfdReaderCountMask)
+    {
       return false;
     }
     if (control->reader_state.compare_exchange_weak(
-          value, value + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+          value, value + 1, std::memory_order_acq_rel, std::memory_order_acquire))
+    {
       return true;
     }
   }
@@ -125,7 +128,8 @@ static_assert(
 /// Publisher-side allocation and its stable physical identity.
 struct MemfdBlock
 {
-  int memfd{-1};
+  // An fd on Linux or a HANDLE represented as intptr_t on Windows.
+  std::intptr_t memfd{-1};
   void * mapping{nullptr};
   std::size_t mapped_size{0};
   std::size_t payload_size{0};
@@ -138,8 +142,8 @@ struct MemfdBlock
 
 class MemfdFdBroker;
 
-/// Publisher-side size-aware pool for anonymous memfd blocks.
-class MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
+/// Publisher-side size-aware pool for Linux memfd or Windows named mappings.
+class MEMFD_BUFFER_PUBLIC MemfdMemoryPool : public std::enable_shared_from_this<MemfdMemoryPool>
 {
 public:
   MemfdMemoryPool();
@@ -166,13 +170,13 @@ public:
   /// Record that a descriptor for the current generation was created.
   void mark_published(MemfdBlock * block);
 
-  /// Register the block's memfd with the reusable FD broker.
+  /// Register the block's backing object with the platform IPC broker.
   std::string register_block_for_ipc(MemfdBlock * block);
 
   /// Find the block containing a publisher-side payload pointer.
   MemfdBlock * find_block_for_ptr(const void * ptr) const;
 
-  bool is_ipc_capable() const { return ipc_capable_; }
+  bool is_ipc_capable() const {return ipc_capable_;}
 
 private:
   MemfdBlock * create_block(std::size_t payload_size);

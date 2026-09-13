@@ -19,16 +19,16 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <utility>
 
 #include "memfd_buffer/memfd_buffer_handle.hpp"
 #include "memfd_buffer/memfd_memory_pool.hpp"
+#include "memfd_buffer/visibility_control.h"
 
 namespace memfd_buffer_backend
 {
 
 /// Low-level RAII view of a publisher or imported memfd payload.
-class MemfdBuffer
+class MEMFD_BUFFER_PUBLIC MemfdBuffer
 {
 public:
   MemfdBuffer() = default;
@@ -52,13 +52,13 @@ public:
 
   void hold_reader_reference();
 
-  std::size_t size() const { return size_; }
-  std::uint8_t * get_ptr() { return data_ptr_; }
-  const std::uint8_t * get_ptr() const { return data_ptr_; }
-  MemfdControlHeader * control() const { return control_; }
-  std::uint32_t block_id() const { return block_id_; }
-  std::uint64_t mapped_size() const { return mapped_size_; }
-  bool writable() const { return writable_; }
+  std::size_t size() const {return size_;}
+  std::uint8_t * get_ptr() {return data_ptr_;}
+  const std::uint8_t * get_ptr() const {return data_ptr_;}
+  MemfdControlHeader * control() const {return control_;}
+  std::uint32_t block_id() const {return block_id_;}
+  std::uint64_t mapped_size() const {return mapped_size_;}
+  bool writable() const {return writable_;}
 
 private:
   void reset() noexcept;

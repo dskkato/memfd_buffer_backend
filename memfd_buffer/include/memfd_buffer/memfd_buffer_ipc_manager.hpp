@@ -15,19 +15,23 @@
 #ifndef MEMFD_BUFFER__MEMFD_BUFFER_IPC_MANAGER_HPP_
 #define MEMFD_BUFFER__MEMFD_BUFFER_IPC_MANAGER_HPP_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <unordered_map>
 
 #include "memfd_buffer/memfd_memory_pool.hpp"
+#include "memfd_buffer/visibility_control.h"
 
 namespace memfd_buffer_backend
 {
 
-/// Reusable publisher-side Unix socket FD broker.
-class MemfdFdBroker
+/// Reusable publisher-side IPC broker.
+///
+/// Linux publishes an fd through a Unix-domain socket. Windows publishes the
+/// name of the file-mapping object. The implementation is selected by CMake;
+/// callers do not need to know which transport is active.
+class MEMFD_BUFFER_PUBLIC MemfdFdBroker
 {
 public:
   MemfdFdBroker();
@@ -39,58 +43,46 @@ public:
   std::string register_block(MemfdBlock * block);
 
 private:
-  struct FDDispatcher;
-
-  static std::shared_ptr<FDDispatcher> get_dispatcher();
-  static int create_fd_server_socket(const std::string & path);
-
-  struct RegisteredBlock
-  {
-    int server_socket{-1};
-    std::string socket_path;
-  };
-
-  std::shared_ptr<FDDispatcher> dispatcher_;
-  std::unordered_map<std::uint32_t, RegisteredBlock> registered_blocks_;
-  std::mutex mutex_;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 /// One received and mapped physical block in the subscriber process.
-class MemfdImportedBlock
+class MEMFD_BUFFER_PUBLIC MemfdImportedBlock
 {
 public:
-  MemfdImportedBlock(int memfd, void * mapping, std::size_t mapped_size, std::string socket_path);
+  MemfdImportedBlock(
+    std::intptr_t native_handle, void * mapping, std::size_t mapped_size, std::string ipc_name);
   ~MemfdImportedBlock();
 
   MemfdImportedBlock(const MemfdImportedBlock &) = delete;
   MemfdImportedBlock & operator=(const MemfdImportedBlock &) = delete;
 
-  MemfdControlHeader * control() const { return control_; }
+  MemfdControlHeader * control() const {return control_;}
   std::uint8_t * payload() const;
-  std::size_t mapped_size() const { return mapped_size_; }
+  std::size_t mapped_size() const {return mapped_size_;}
 
   void acquire_reader();
   void release_reader() noexcept;
 
 private:
-  int memfd_{-1};
+  std::intptr_t native_handle_{-1};
   void * mapping_{nullptr};
   std::size_t mapped_size_{0};
   MemfdControlHeader * control_{nullptr};
-  std::string socket_path_;
+  std::string ipc_name_;
 };
 
-/// Process-local cache for imported mappings.  The cache key is the physical
-/// block identity, not the publication UID.
-class MemfdHandleCache
+/// Process-local cache for imported Linux memfd or Windows named mappings.
+/// The cache key is the physical block identity, not the publication UID.
+class MEMFD_BUFFER_PUBLIC MemfdHandleCache
 {
 public:
   static std::shared_ptr<MemfdImportedBlock> import_block(
-    const std::string & socket_path, std::int32_t pid, std::uint32_t block_id,
+    const std::string & ipc_name, std::int32_t pid, std::uint32_t block_id,
     std::uint64_t mapped_size, std::uint64_t payload_size, std::uint64_t expected_uid);
 
 private:
-  static int receive_fd_from_socket(const std::string & socket_path);
   static void validate(
     const MemfdImportedBlock & block, std::uint64_t mapped_size, std::uint64_t payload_size,
     std::uint64_t expected_uid);

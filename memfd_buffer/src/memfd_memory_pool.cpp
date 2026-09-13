@@ -14,20 +14,12 @@
 
 #include "memfd_buffer/memfd_memory_pool.hpp"
 
-#include <fcntl.h>
-#include <linux/memfd.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include <cerrno>
-#include <cstring>
 #include <limits>
 #include <new>
 #include <stdexcept>
 
 #include "memfd_buffer/memfd_buffer_ipc_manager.hpp"
+#include "memfd_buffer/memfd_buffer_platform.hpp"
 
 namespace memfd_buffer_backend
 {
@@ -35,27 +27,17 @@ namespace memfd_buffer_backend
 namespace
 {
 
-int create_memfd()
-{
-#ifdef __linux__
-  const int fd = static_cast<int>(syscall(SYS_memfd_create, "rosidl_memfd_buffer", MFD_CLOEXEC));
-  return fd;
-#else
-  errno = ENOTSUP;
-  return -1;
-#endif
-}
-
 std::uint64_t monotonic_time_us()
 {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now().time_since_epoch())
-                                      .count());
+         .count());
 }
 
 }  // namespace
 
-MemfdMemoryPool::MemfdMemoryPool() = default;
+MemfdMemoryPool::MemfdMemoryPool()
+: broker_(std::make_unique<MemfdFdBroker>()) {}
 
 MemfdMemoryPool::~MemfdMemoryPool()
 {
@@ -69,17 +51,9 @@ MemfdMemoryPool::~MemfdMemoryPool()
       block->control->~MemfdControlHeader();
       block->control = nullptr;
     }
-    if (block->mapping != nullptr && block->mapped_size > 0) {
-      munmap(block->mapping, block->mapped_size);
-      block->mapping = nullptr;
-    }
-    if (block->memfd >= 0) {
-      close(block->memfd);
-      block->memfd = -1;
-    }
-    if (!block->socket_path.empty()) {
-      unlink(block->socket_path.c_str());
-    }
+    destroy_platform_mapping(block->memfd, block->mapping, block->mapped_size);
+    block->memfd = -1;
+    block->mapping = nullptr;
   }
 }
 
@@ -143,7 +117,7 @@ std::function<void(std::uint8_t *)> MemfdMemoryPool::deleter(MemfdBlock * block)
   } catch (const std::bad_weak_ptr &) {
     throw std::runtime_error("MemfdMemoryPool must be owned by shared_ptr");
   }
-  return [self, block](std::uint8_t *) { self->free(block); };
+  return [self, block](std::uint8_t *) {self->free(block);};
 }
 
 std::uint64_t MemfdMemoryPool::assign_uid(MemfdBlock * block)
@@ -217,47 +191,33 @@ MemfdBlock * MemfdMemoryPool::create_block(std::size_t payload_size)
     throw std::length_error("memfd buffer mapping size overflows size_t");
   }
   const std::size_t mapped_size = kMemfdPayloadOffset + payload_size;
-  if (mapped_size > static_cast<std::size_t>(std::numeric_limits<off_t>::max())) {
-    throw std::length_error("memfd buffer mapping is too large for ftruncate");
-  }
+  const std::uint32_t block_id = next_block_id_++;
+  const auto platform_mapping = create_platform_mapping(mapped_size, block_id, uid_dist_(uid_rng_));
 
-  const int fd = create_memfd();
-  if (fd < 0) {
-    throw std::runtime_error("memfd_create failed: " + std::string(std::strerror(errno)));
-  }
-  if (ftruncate(fd, static_cast<off_t>(mapped_size)) != 0) {
-    const std::string message = std::strerror(errno);
-    close(fd);
-    throw std::runtime_error("ftruncate for memfd failed: " + message);
-  }
+  try {
+    auto block = std::make_unique<MemfdBlock>();
+    block->memfd = platform_mapping.native_handle;
+    block->mapping = platform_mapping.mapping;
+    block->mapped_size = platform_mapping.mapped_size;
+    block->payload_size = payload_size;
+    block->block_id = block_id;
+    block->socket_path = platform_mapping.ipc_name;
+    block->control = new (platform_mapping.mapping) MemfdControlHeader();
+    block->control->payload_size = payload_size;
+    block->control->ipc_uid.store(0, std::memory_order_relaxed);
+    block->control->reader_state.store(0, std::memory_order_relaxed);
+    block->control->publish_timestamp_us.store(0, std::memory_order_relaxed);
 
-  void * mapping = mmap(nullptr, mapped_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (mapping == MAP_FAILED) {
-    const std::string message = std::strerror(errno);
-    close(fd);
-    throw std::runtime_error("mmap for memfd failed: " + message);
+    MemfdBlock * result = block.get();
+    all_blocks_.push_back(std::move(block));
+    initialized_ = true;
+    ipc_capable_ = true;
+    return result;
+  } catch (...) {
+    destroy_platform_mapping(
+      platform_mapping.native_handle, platform_mapping.mapping, platform_mapping.mapped_size);
+    throw;
   }
-
-  auto block = std::make_unique<MemfdBlock>();
-  block->memfd = fd;
-  block->mapping = mapping;
-  block->mapped_size = mapped_size;
-  block->payload_size = payload_size;
-  block->block_id = next_block_id_++;
-  block->control = new (mapping) MemfdControlHeader();
-  block->control->payload_size = payload_size;
-  block->control->ipc_uid.store(0, std::memory_order_relaxed);
-  block->control->reader_state.store(0, std::memory_order_relaxed);
-  block->control->publish_timestamp_us.store(0, std::memory_order_relaxed);
-
-  MemfdBlock * result = block.get();
-  all_blocks_.push_back(std::move(block));
-  initialized_ = true;
-  ipc_capable_ = true;
-  if (broker_ == nullptr) {
-    broker_ = std::make_unique<MemfdFdBroker>();
-  }
-  return result;
 }
 
 }  // namespace memfd_buffer_backend

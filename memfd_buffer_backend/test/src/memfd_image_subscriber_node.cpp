@@ -56,7 +56,7 @@ private:
     return static_cast<std::uint8_t>((sequence * 37u + 11u) & 0xffu);
   }
 
-  void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
+  void image_callback(std::shared_ptr<const sensor_msgs::msg::Image> msg)
   {
     ++received_count_;
     bool metadata_valid = msg->header.frame_id ==

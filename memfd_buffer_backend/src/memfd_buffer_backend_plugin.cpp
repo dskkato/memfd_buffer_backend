@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <stdexcept>
@@ -107,19 +114,23 @@ std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
     if (block == nullptr || block->control == nullptr) {
       return nullptr;
     }
-    const std::string socket_path = pool->register_block_for_ipc(block);
+    const std::string ipc_name = pool->register_block_for_ipc(block);
     const std::uint64_t uid = pool->assign_uid(block);
-    if (socket_path.empty() || uid == 0) {
+    if (ipc_name.empty() || uid == 0) {
       return nullptr;
     }
 
     auto descriptor = std::make_shared<memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
     descriptor->size = memfd_impl->size();
     descriptor->element_type_name = typeid(std::uint8_t).name();
+#ifdef _WIN32
+    descriptor->memfd_pid = static_cast<std::int32_t>(GetCurrentProcessId());
+#else
     descriptor->memfd_pid = static_cast<std::int32_t>(getpid());
+#endif
     descriptor->memfd_block_id = block->block_id;
     descriptor->memfd_block_size = block->mapped_size;
-    descriptor->memfd_socket_path = socket_path;
+    descriptor->memfd_socket_path = ipc_name;
     descriptor->ipc_uid = uid;
     pool->mark_published(block);
     return descriptor;
@@ -143,7 +154,8 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
   if (
     descriptor.memfd_pid <= 0 || descriptor.memfd_socket_path.empty() || descriptor.ipc_uid == 0 ||
     descriptor.memfd_block_size < kMemfdPayloadOffset ||
-    descriptor.size > descriptor.memfd_block_size - kMemfdPayloadOffset) {
+    descriptor.size > descriptor.memfd_block_size - kMemfdPayloadOffset)
+  {
     throw std::runtime_error("invalid memfd descriptor metadata");
   }
 
@@ -156,15 +168,15 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
     throw std::runtime_error("stale memfd descriptor raced with block reuse");
   }
 
-  auto reader_release = [imported](std::uint8_t *) { imported->release_reader(); };
+  auto reader_release = [imported](std::uint8_t *) {imported->release_reader();};
   MemfdBuffer buffer(
     imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
     descriptor.memfd_block_id, descriptor.memfd_block_size, false);
   auto result = std::make_unique<MemfdBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
   return {result.release(), [](void * ptr) {
-            delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
-          }};
+      delete static_cast<rosidl::BufferImplBase<std::uint8_t> *>(ptr);
+    }};
 }
 
 }  // namespace memfd_buffer_backend

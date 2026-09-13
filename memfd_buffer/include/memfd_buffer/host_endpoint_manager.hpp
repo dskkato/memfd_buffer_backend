@@ -17,17 +17,19 @@
 
 #include <string>
 
+#include "memfd_buffer/visibility_control.h"
+
 namespace memfd_buffer_backend
 {
 
-/// Supplies the conservative same-host/same-euid capability identity used by
-/// memfd endpoint discovery.
-class HostEndpointManager
+/// Supplies the conservative same-host/user locality identity used by shared
+/// memory endpoint discovery. Windows also includes the login session.
+class MEMFD_BUFFER_PUBLIC HostEndpointManager
 {
 public:
   HostEndpointManager();
 
-  const std::string & metadata() const { return metadata_; }
+  const std::string & metadata() const {return metadata_;}
 
 private:
   std::string metadata_;

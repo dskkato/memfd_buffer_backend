@@ -31,8 +31,8 @@ std::shared_ptr<void> make_lease(MemfdControlHeader * control)
     throw std::runtime_error("memfd block is being reused");
   }
   return std::shared_ptr<void>(control, [](void * ptr) {
-    auto * header = static_cast<MemfdControlHeader *>(ptr);
-    release_memfd_reader(header);
+             auto * header = static_cast<MemfdControlHeader *>(ptr);
+             release_memfd_reader(header);
   });
 }
 
@@ -72,7 +72,7 @@ ReadHandle & ReadHandle::operator=(ReadHandle && other) noexcept
   return *this;
 }
 
-ReadHandle::~ReadHandle() { release(); }
+ReadHandle::~ReadHandle() {release();}
 
 void ReadHandle::release() noexcept
 {
@@ -119,7 +119,7 @@ WriteHandle & WriteHandle::operator=(WriteHandle && other) noexcept
   return *this;
 }
 
-WriteHandle::~WriteHandle() { release(); }
+WriteHandle::~WriteHandle() {release();}
 
 void WriteHandle::release() noexcept
 {
@@ -153,7 +153,7 @@ MemfdBuffer::MemfdBuffer(
   }
 }
 
-MemfdBuffer::~MemfdBuffer() { reset(); }
+MemfdBuffer::~MemfdBuffer() {reset();}
 
 MemfdBuffer::MemfdBuffer(MemfdBuffer && other) noexcept
 : data_ptr_(other.data_ptr_),

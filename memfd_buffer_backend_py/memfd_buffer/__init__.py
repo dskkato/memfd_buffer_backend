@@ -17,10 +17,16 @@
 from typing import Any
 from typing import Optional
 
-from memfd_buffer._memfd_buffer_py import _NativeReadAccess
-from memfd_buffer._memfd_buffer_py import _NativeWriteAccess
-from memfd_buffer._memfd_buffer_py import allocate_buffer
-from rosidl_buffer import Buffer
+from rpyutils import add_dll_directories_from_env
+
+# Since Python 3.8, on Windows we should ensure DLL directories are explicitly
+# added to the search path before importing native extensions.
+# See https://docs.python.org/3/whatsnew/3.8.html#bpo-36085-whatsnew
+with add_dll_directories_from_env('PATH'):
+    from memfd_buffer._memfd_buffer_py import _NativeReadAccess
+    from memfd_buffer._memfd_buffer_py import _NativeWriteAccess
+    from memfd_buffer._memfd_buffer_py import allocate_buffer
+    from rosidl_buffer import Buffer
 
 
 class _Access:
