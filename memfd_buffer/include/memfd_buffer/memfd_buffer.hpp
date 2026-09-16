@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 
 #include "memfd_buffer/memfd_buffer_handle.hpp"
 #include "memfd_buffer/memfd_memory_pool.hpp"
@@ -36,7 +37,8 @@ public:
   MemfdBuffer(
     void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
     MemfdControlHeader * control = nullptr, std::shared_ptr<void> owner = nullptr,
-    std::uint32_t block_id = 0, std::uint64_t mapped_size = 0, bool writable = true);
+    std::uint32_t block_id = 0, std::uint64_t mapped_size = 0, bool writable = true,
+    std::int32_t ipc_pid = 0, std::string ipc_name = {}, std::uint64_t ipc_uid = 0);
 
   ~MemfdBuffer();
 
@@ -60,6 +62,17 @@ public:
   std::uint64_t mapped_size() const {return mapped_size_;}
   bool writable() const {return writable_;}
 
+  /// True when this buffer was imported from another process and can be
+  /// described again without looking it up in the local publisher pool.
+  bool has_ipc_descriptor() const
+  {
+    return ipc_pid_ > 0 && !ipc_name_.empty() && ipc_uid_ != 0;
+  }
+
+  std::int32_t ipc_pid() const {return ipc_pid_;}
+  const std::string & ipc_name() const {return ipc_name_;}
+  std::uint64_t ipc_uid() const {return ipc_uid_;}
+
 private:
   void reset() noexcept;
 
@@ -73,6 +86,9 @@ private:
   std::uint32_t block_id_{0};
   std::uint64_t mapped_size_{0};
   bool writable_{true};
+  std::int32_t ipc_pid_{0};
+  std::string ipc_name_;
+  std::uint64_t ipc_uid_{0};
 };
 
 }  // namespace memfd_buffer_backend

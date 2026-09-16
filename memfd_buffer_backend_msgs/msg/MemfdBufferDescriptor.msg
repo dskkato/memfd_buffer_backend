@@ -20,4 +20,4 @@ int32 memfd_pid                # Publisher process ID
 uint32 memfd_block_id          # Block ID in the publisher's pool
 uint64 memfd_block_size        # Block size (for import mapping)
 string memfd_socket_path       # Linux FD broker path or Windows named mapping object name
-uint64 ipc_uid                 # Unique ID per publish for staleness detection
+uint64 ipc_uid                 # Unique ID per allocation/reuse generation for staleness detection

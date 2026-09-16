@@ -102,6 +102,20 @@ if(BUILD_TESTING)
   rclcpp_components_register_nodes(memfd_image_subscriber_component
     "MemfdImageSubscriber")
 
+  ament_auto_add_library(memfd_image_relay_component SHARED
+    NO_TARGET_LINK_LIBRARIES
+    test/src/memfd_image_relay_node.cpp
+  )
+  target_link_libraries(memfd_image_relay_component
+    memfd_buffer::memfd_buffer
+    rclcpp::rclcpp
+    rclcpp_components::component
+    ${sensor_msgs_TARGETS}
+    rosidl_runtime_cpp::rosidl_runtime_cpp
+  )
+  rclcpp_components_register_nodes(memfd_image_relay_component
+    "MemfdImageRelay")
+
   add_launch_test(test/test_memfd_pool_dso_fastrtps_launch.py
     TARGET test_memfd_pool_dso_fastrtps_launch
     TIMEOUT 45

@@ -110,6 +110,35 @@ std::shared_ptr<void> MemfdBufferBackend::create_descriptor_with_endpoint(
     const auto pool = get_global_memfd_pool();
     auto & memfd_buffer = memfd_impl->get_memfd_buffer();
     memfd_buffer.finalize_write_handle();
+
+    // An imported buffer is a read-only view of a block owned by an upstream
+    // process.  It is not present in this process's publisher pool, so looking
+    // it up with find_block_for_ptr() would force an unnecessary CPU fallback.
+    // Reuse the original descriptor identity instead.  The imported buffer's
+    // reader reference keeps the generation alive while this node handles the
+    // message, and the UID check prevents forwarding a stale generation.
+    if (memfd_buffer.has_ipc_descriptor()) {
+      auto * control = memfd_buffer.control();
+      if (
+        control == nullptr || control->magic != kMemfdControlMagic ||
+        control->abi_version != kMemfdControlAbiVersion ||
+        control->payload_size != memfd_buffer.size() ||
+        control->ipc_uid.load(std::memory_order_acquire) != memfd_buffer.ipc_uid())
+      {
+        return nullptr;
+      }
+
+      auto descriptor = std::make_shared<memfd_buffer_backend_msgs::msg::MemfdBufferDescriptor>();
+      descriptor->size = memfd_buffer.size();
+      descriptor->element_type_name = typeid(std::uint8_t).name();
+      descriptor->memfd_pid = memfd_buffer.ipc_pid();
+      descriptor->memfd_block_id = memfd_buffer.block_id();
+      descriptor->memfd_block_size = memfd_buffer.mapped_size();
+      descriptor->memfd_socket_path = memfd_buffer.ipc_name();
+      descriptor->ipc_uid = memfd_buffer.ipc_uid();
+      return descriptor;
+    }
+
     MemfdBlock * block = pool->find_block_for_ptr(memfd_buffer.get_ptr());
     if (block == nullptr || block->control == nullptr) {
       return nullptr;
@@ -171,7 +200,8 @@ std::unique_ptr<void, void (*)(void *)> MemfdBufferBackend::from_descriptor_with
   auto reader_release = [imported](std::uint8_t *) {imported->release_reader();};
   MemfdBuffer buffer(
     imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
-    descriptor.memfd_block_id, descriptor.memfd_block_size, false);
+    descriptor.memfd_block_id, descriptor.memfd_block_size, false, descriptor.memfd_pid,
+    descriptor.memfd_socket_path, descriptor.ipc_uid);
   auto result = std::make_unique<MemfdBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
   return {result.release(), [](void * ptr) {

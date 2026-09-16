@@ -33,21 +33,30 @@ public:
   explicit MemfdImageSubscriber(const rclcpp::NodeOptions & options)
   : Node("memfd_image_subscriber", options)
   {
+    const auto input_topic = declare_parameter<std::string>(
+      "input_topic", "test_memfd_image_dso");
+    const auto result_prefix = declare_parameter<std::string>(
+      "result_prefix", "memfd_dso");
+
     rclcpp::SubscriptionOptions subscription_options;
     // Reject CPU fallback at endpoint matching time.  The test must fail if
     // descriptor creation in the publisher process did not find its block.
     subscription_options.acceptable_buffer_backends = "memfd";
     subscription_ = create_subscription<sensor_msgs::msg::Image>(
-      "test_memfd_image_dso", 10,
+      input_topic, 10,
       std::bind(&MemfdImageSubscriber::image_callback, this, std::placeholders::_1),
       subscription_options);
 
-    count_publisher_ = create_publisher<std_msgs::msg::UInt32>("memfd_dso_subscriber_count", 10);
-    validation_publisher_ = create_publisher<std_msgs::msg::Bool>("memfd_dso_validation", 10);
-    backend_publisher_ = create_publisher<std_msgs::msg::Bool>("memfd_dso_backend_validation", 10);
-    content_publisher_ = create_publisher<std_msgs::msg::Bool>("memfd_dso_content_validation", 10);
+    count_publisher_ = create_publisher<std_msgs::msg::UInt32>(
+      result_prefix + "_subscriber_count", 10);
+    validation_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      result_prefix + "_validation", 10);
+    backend_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      result_prefix + "_backend_validation", 10);
+    content_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      result_prefix + "_content_validation", 10);
     metadata_publisher_ = create_publisher<std_msgs::msg::Bool>(
-      "memfd_dso_metadata_validation", 10);
+      result_prefix + "_metadata_validation", 10);
   }
 
 private:
