@@ -73,7 +73,7 @@ public:
   SharedBufferImpl(SharedBufferImpl &&) = delete;
   SharedBufferImpl & operator=(SharedBufferImpl &&) = delete;
 
-  std::string get_backend_type() const override {return "shm";}
+  std::string get_backend_type() const override {return "shared_buffer";}
   std::size_t size() const override {return size_;}
 
   void resize(std::size_t size)

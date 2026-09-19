@@ -108,7 +108,7 @@ TEST(SharedBufferTest, PromotesCpuInputBuffer)
   const auto & const_cpu = cpu;
   auto read = shared_buffer::from_input_buffer(const_cpu);
   ASSERT_NE(nullptr, read.get_promoted_buffer());
-  EXPECT_EQ("shm", read.get_promoted_buffer()->get_backend_type());
+  EXPECT_EQ("shared_buffer", read.get_promoted_buffer()->get_backend_type());
   EXPECT_EQ(0xA0, read.get_ptr()[0]);
   EXPECT_EQ(0xA7, read.get_ptr()[7]);
 }

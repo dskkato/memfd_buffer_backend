@@ -38,7 +38,7 @@ public:
   SharedBufferBackend();
   ~SharedBufferBackend() override = default;
 
-  std::string get_backend_type() const override {return "shm";}
+  std::string get_backend_type() const override {return "shared_buffer";}
 
   std::string get_backend_metadata() const override;
 

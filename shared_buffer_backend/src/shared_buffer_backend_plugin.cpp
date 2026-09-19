@@ -78,7 +78,7 @@ std::pair<bool, std::vector<std::set<std::uint32_t>>> SharedBufferBackend::on_di
 {
   (void)existing_endpoints;
 
-  const auto it = endpoint_supported_backends.find("shm");
+  const auto it = endpoint_supported_backends.find("shared_buffer");
   const bool is_compatible =
     it != endpoint_supported_backends.end() && it->second == get_backend_metadata();
   {

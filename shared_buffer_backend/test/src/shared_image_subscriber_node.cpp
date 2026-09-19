@@ -36,7 +36,7 @@ public:
     rclcpp::SubscriptionOptions subscription_options;
     // Reject CPU fallback at endpoint matching time.  The test must fail if
     // descriptor creation in the publisher process did not find its block.
-    subscription_options.acceptable_buffer_backends = "shm";
+    subscription_options.acceptable_buffer_backends = "shared_buffer";
     subscription_ = create_subscription<sensor_msgs::msg::Image>(
       "test_shared_buffer_image_dso", 10,
       std::bind(&SharedImageSubscriber::image_callback, this, std::placeholders::_1),
@@ -69,7 +69,7 @@ private:
     metadata_valid = metadata_valid && msg->encoding == "mono8" && msg->step == 256u;
     metadata_valid = metadata_valid && msg->data.size() == 4096u;
 
-    const bool backend_valid = msg->data.get_backend_type() == "shm";
+    const bool backend_valid = msg->data.get_backend_type() == "shared_buffer";
     bool content_valid = false;
     try {
       // Check the backend before acquiring the handle so CPU fallback cannot

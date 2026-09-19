@@ -39,10 +39,10 @@ TEST(SharedBufferBackendTest, MetadataRequiresSamePlatformLocality)
   shared_buffer::SharedBufferBackend backend;
   const auto info = endpoint();
   std::unordered_map<std::string, std::string> supported;
-  supported["shm"] = backend.get_backend_metadata();
+  supported["shared_buffer"] = backend.get_backend_metadata();
   EXPECT_TRUE(backend.on_discovering_endpoint(info, {}, supported).first);
 
-  supported["shm"] = "different-host:4294967295";
+  supported["shared_buffer"] = "different-host:4294967295";
   EXPECT_FALSE(backend.on_discovering_endpoint(info, {}, supported).first);
 }
 
@@ -51,7 +51,7 @@ TEST(SharedBufferBackendTest, DescriptorRoundTripUsesPlatformIpcAndMappingCache)
   shared_buffer::SharedBufferBackend backend;
   const auto info = endpoint();
   std::unordered_map<std::string, std::string> supported;
-  supported["shm"] = backend.get_backend_metadata();
+  supported["shared_buffer"] = backend.get_backend_metadata();
   ASSERT_TRUE(backend.on_discovering_endpoint(info, {}, supported).first);
 
   auto buffer = shared_buffer::allocate_buffer(128);
@@ -117,7 +117,7 @@ TEST(SharedBufferBackendTest, IncompatiblePeerFallsBack)
   shared_buffer::SharedBufferBackend backend;
   const auto info = endpoint();
   std::unordered_map<std::string, std::string> supported;
-  supported["shm"] = "other-host:1000";
+  supported["shared_buffer"] = "other-host:1000";
   EXPECT_FALSE(backend.on_discovering_endpoint(info, {}, supported).first);
 
   auto buffer = shared_buffer::allocate_buffer(8);
