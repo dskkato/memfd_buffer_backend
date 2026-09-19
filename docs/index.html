@@ -34,7 +34,7 @@
         <p class="lede">
           <code>shared_buffer_backend</code> は、画像などの buffer payload を同一ホスト上の
           共有メモリに置き、ROS 2 のメッセージでは buffer payload の代わりに小さな descriptor を配送します。
-          C++ と Python から、同じ仕組みを利用できます。
+          C++、Python、Rust から、同じ仕組みを利用できます。
         </p>
         <div class="hero-actions">
           <a class="button primary" href="#start">使い始める</a>
@@ -45,6 +45,7 @@
           <li>Windows</li>
           <li>C++17</li>
           <li>Python</li>
+          <li>Rust</li>
         </ul>
       </div>
 
@@ -230,6 +231,7 @@
           <li><span>01</span><div><strong>ROS 2 Lyrical</strong><p><code>rosidl::Buffer</code> と backend API を含む環境。</p></div></li>
           <li><span>02</span><div><strong>Linux または Windows</strong><p>同じ host・user の process 間で利用します。</p></div></li>
           <li><span>03</span><div><strong>colcon / rosdep</strong><p>通常の ROS 2 source workspace として build。</p></div></li>
+          <li><span>04</span><div><strong>Rust を使う場合</strong><p><code>cargo</code> と <code>colcon-cargo</code> / <code>colcon-ros-cargo</code>。</p></div></li>
         </ol>
 
         <div class="terminal reveal">
@@ -255,7 +257,7 @@ source install/setup.bash</code></pre>
     <section class="section usage-section" id="usage">
       <div class="section-heading reveal">
         <p class="eyebrow">API</p>
-        <h2>C++ と Python、同じ lifecycle</h2>
+        <h2>C++、Python、Rust、同じ lifecycle</h2>
         <p>allocate → scoped write → publish → scoped read。handle / context を閉じるまで pointer や view が有効です。</p>
       </div>
 
@@ -263,6 +265,7 @@ source install/setup.bash</code></pre>
         <div class="tab-list" role="tablist" aria-label="言語を選択">
           <button role="tab" aria-selected="true" aria-controls="cpp-panel" id="cpp-tab">C++</button>
           <button role="tab" aria-selected="false" aria-controls="python-panel" id="python-tab" tabindex="-1">Python</button>
+          <button role="tab" aria-selected="false" aria-controls="rust-panel" id="rust-tab" tabindex="-1">Rust</button>
         </div>
 
         <div class="tab-panel" id="cpp-panel" role="tabpanel" aria-labelledby="cpp-tab">
@@ -320,6 +323,25 @@ message.data = buffer</code></pre>
     <span class="token-keyword">del</span> image</code></pre>
           </div>
         </div>
+
+        <div class="tab-panel" id="rust-panel" role="tabpanel" aria-labelledby="rust-tab" hidden>
+          <div class="code-column">
+            <div class="code-title"><span>Write</span><button type="button" class="copy-button dark" data-copy-target="rust-write">Copy</button></div>
+            <pre id="rust-write"><code><span class="token-keyword">use</span> shared_buffer_rust::Buffer;
+
+<span class="token-keyword">let mut</span> buffer = Buffer::new(byte_count)?;
+{
+  <span class="token-keyword">let mut</span> write = buffer.write()?;
+  write.copy_from_slice(pixels);
+} <span class="token-comment">// write lease を finalize</span></code></pre>
+          </div>
+          <div class="code-column">
+            <div class="code-title"><span>Read</span><button type="button" class="copy-button dark" data-copy-target="rust-read">Copy</button></div>
+            <pre id="rust-read"><code><span class="token-keyword">let</span> read = buffer.read()?;
+process_pixels(&amp;read);
+<span class="token-comment">// scope 終了時に read lease を解放</span></code></pre>
+          </div>
+        </div>
       </div>
 
       <div class="notes-grid">
@@ -338,7 +360,7 @@ message.data = buffer</code></pre>
           <thead><tr><th>項目</th><th>対応</th><th>補足</th></tr></thead>
           <tbody>
             <tr><th>ROS 2</th><td><span class="status yes">● 対応</span></td><td>Lyrical の <code>rosidl::Buffer</code> backend</td></tr>
-            <tr><th>Language</th><td><span class="status yes">● C++ / Python</span></td><td>Python は buffer protocol 対応、NumPy は optional</td></tr>
+            <tr><th>Language</th><td><span class="status yes">● C++ / Python / Rust</span></td><td>Rust は scoped slice API、Python は buffer protocol 対応</td></tr>
             <tr><th>Linux</th><td><span class="status yes">● 対応</span></td><td>memfd、Unix domain socket、<code>SCM_RIGHTS</code></td></tr>
             <tr><th>Windows</th><td><span class="status yes">● 対応</span></td><td>session-local named file mapping</td></tr>
             <tr><th>別 host</th><td><span class="status no">— 対象外</span></td><td>CPU buffer path へ fallback</td></tr>

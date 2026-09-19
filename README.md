@@ -21,6 +21,8 @@ implementation.
   brokering, and Windows named-mapping import.
 - `shared_buffer_backend_py`: Python zero-copy bindings for the shared-memory backend
   (installs the `shared_buffer` Python module).
+- `shared_buffer_rust`: Rust RAII bindings for shared-memory allocation and scoped
+  read/write access.
 - `shared_buffer_backend`: rosidl buffer backend plugin.
 - `shared_buffer_backend_msgs`: descriptor message used for inter-process import.
 
@@ -53,6 +55,35 @@ with read_buffer(received_message.data) as view:
 Read views are read-only. Write views are exclusive and are finalized when the
 scope closes. A derived view must not escape the scope; closing raises
 `BufferError` while an exported NumPy or memoryview object remains alive.
+
+## Rust zero-copy access
+
+The `shared_buffer_rust` package provides an `ament_cargo` crate with the same
+scoped lifecycle. It keeps the native allocation alive and exposes Rust slices
+whose lifetimes are tied to their access lease:
+
+Build the Rust package with a Rust toolchain and the `colcon-cargo` /
+`colcon-ros-cargo` extensions (or build the crate directly with Cargo after
+sourcing the ROS 2 workspace).
+
+```rust
+use shared_buffer_rust::Buffer;
+
+let mut buffer = Buffer::new(1024)?;
+{
+    let mut write = buffer.write()?;
+    write.fill(7);
+}
+
+let read = buffer.read()?;
+process(&read);
+# Ok::<(), shared_buffer_rust::Error>(())
+```
+
+The crate currently manages the shared payload from Rust. Rust message
+generators do not yet expose a portable field type for C++ `rosidl::Buffer`,
+so assigning this allocation directly to a generated Rust message is not yet
+supported.
 
 ## Benchmark
 

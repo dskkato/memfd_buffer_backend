@@ -28,6 +28,7 @@
 #endif
 
 #include "shared_buffer/shared_buffer_api.hpp"
+#include "shared_buffer/shared_buffer_c_api.h"
 #include "shared_buffer/shared_buffer_impl.hpp"
 #include "shared_buffer/shared_buffer_memory_pool.hpp"
 
@@ -111,6 +112,37 @@ TEST(SharedBufferTest, PromotesCpuInputBuffer)
   EXPECT_EQ("shared_buffer", read.get_promoted_buffer()->get_backend_type());
   EXPECT_EQ(0xA0, read.get_ptr()[0]);
   EXPECT_EQ(0xA7, read.get_ptr()[7]);
+}
+
+TEST(SharedBufferTest, CApiProvidesScopedSharedBufferAccess)
+{
+  shared_buffer_rust_buffer_t * buffer = nullptr;
+  ASSERT_EQ(
+    SHARED_BUFFER_RUST_OK,
+    shared_buffer_rust_buffer_new(16, &buffer));
+  ASSERT_NE(nullptr, buffer);
+  EXPECT_EQ(16u, shared_buffer_rust_buffer_size(buffer));
+
+  shared_buffer_rust_write_access_t * write = nullptr;
+  ASSERT_EQ(
+    SHARED_BUFFER_RUST_OK,
+    shared_buffer_rust_write_access_new(buffer, &write));
+  ASSERT_NE(nullptr, write);
+  ASSERT_EQ(16u, shared_buffer_rust_write_access_size(write));
+  for (std::size_t i = 0; i < 16; ++i) {
+    shared_buffer_rust_write_access_data(write)[i] = static_cast<std::uint8_t>(i + 1);
+  }
+  shared_buffer_rust_write_access_destroy(write);
+
+  shared_buffer_rust_read_access_t * read = nullptr;
+  ASSERT_EQ(
+    SHARED_BUFFER_RUST_OK,
+    shared_buffer_rust_read_access_new(buffer, &read));
+  ASSERT_NE(nullptr, read);
+  EXPECT_EQ(1u, shared_buffer_rust_read_access_data(read)[0]);
+  EXPECT_EQ(16u, shared_buffer_rust_read_access_data(read)[15]);
+  shared_buffer_rust_read_access_destroy(read);
+  shared_buffer_rust_buffer_destroy(buffer);
 }
 
 TEST(SharedBufferTest, RejectsNonSharedBufferOutputBuffer)

@@ -24,6 +24,7 @@ find_package(rcutils REQUIRED)
 
 set(shared_buffer_sources
   src/shared_buffer.cpp
+  src/shared_buffer_c_api.cpp
   src/shared_buffer_impl.cpp
   src/shared_buffer_memory_pool.cpp
   src/host_endpoint_manager.cpp
