@@ -26,6 +26,7 @@ with add_dll_directories_from_env('PATH'):
     from shared_buffer._shared_buffer_py import _NativeReadAccess
     from shared_buffer._shared_buffer_py import _NativeWriteAccess
     from shared_buffer._shared_buffer_py import allocate_buffer
+    from shared_buffer._shared_buffer_py import allocate_cpu_buffer
     from rosidl_buffer import Buffer
 
 
@@ -104,6 +105,7 @@ __all__ = [
     'ReadAccess',
     'WriteAccess',
     'allocate_buffer',
+    'allocate_cpu_buffer',
     'read_buffer',
     'write_buffer',
 ]
