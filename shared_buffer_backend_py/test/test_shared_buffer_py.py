@@ -113,6 +113,22 @@ def test_exported_numpy_view_prevents_close() -> None:
     assert access.closed
 
 
+def test_exported_memoryview_prevents_close() -> None:
+    buffer = allocate_buffer(8)
+    access = write_buffer(buffer)
+    view = access.__enter__()
+    derived = memoryview(view)
+
+    with pytest.raises(BufferError, match='exported views'):
+        access.close()
+    assert not access.closed
+
+    del derived
+    gc.collect()
+    access.close()
+    assert access.closed
+
+
 def test_access_state_rules() -> None:
     buffer = allocate_buffer(8)
     writer = write_buffer(buffer)
