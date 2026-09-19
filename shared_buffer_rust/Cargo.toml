@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Rust RAII bindings for the shared_buffer ROS 2 backend"
-repository = "https://github.com/dskkato/memfd_buffer_backend"
+repository = "https://github.com/dskkato/shared_buffer_backend"
 build = "build.rs"
 
 [lib]
