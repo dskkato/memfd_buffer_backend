@@ -3,7 +3,7 @@
 //! A payload is deliberately uninitialized when allocated. The public Rust
 //! types make that state explicit:
 //!
-//! `UninitializedBuffer -> WriteAccess<MaybeUninit<u8>> -> Buffer -> ReadAccess<u8>`
+//! `UninitializedBuffer -> WriteAccess -> Buffer -> ReadAccess`
 //!
 //! The native write lease is one-shot. Dropping a write access finalizes the
 //! allocation; there is no second write access for the resulting `Buffer`.
@@ -71,6 +71,8 @@ pub enum Error {
     AccessFailed,
     /// A source slice does not exactly match the payload size.
     LengthMismatch { expected: usize, actual: usize },
+    /// The write access has not been fully initialized yet.
+    NotInitialized,
 }
 
 impl fmt::Display for Error {
@@ -85,6 +87,7 @@ impl fmt::Display for Error {
                     "shared-buffer length mismatch: expected {expected}, got {actual}"
                 )
             }
+            Self::NotInitialized => f.write_str("shared-buffer payload is not initialized"),
         }
     }
 }
@@ -146,7 +149,7 @@ impl UninitializedBuffer {
     }
 
     /// Consume the allocation and acquire its one-shot uninitialized write lease.
-    pub fn write(self) -> Result<WriteAccess<MaybeUninit<u8>>, Error> {
+    pub fn write(self) -> Result<WriteAccess, Error> {
         let mut raw = std::ptr::null_mut();
         // SAFETY: owner.raw is valid and raw is valid output storage.
         unsafe {
@@ -163,7 +166,7 @@ impl UninitializedBuffer {
         Ok(WriteAccess {
             access: Some(raw),
             owner: Some(owner),
-            _element: PhantomData,
+            initialized: false,
         })
     }
 }
@@ -186,7 +189,7 @@ impl Buffer {
     }
 
     /// Acquire read-only access to the initialized payload.
-    pub fn read(&self) -> Result<ReadAccess<'_, u8>, Error> {
+    pub fn read(&self) -> Result<ReadAccess<'_>, Error> {
         let mut raw = std::ptr::null_mut();
         // SAFETY: owner.raw is valid and raw is valid output storage.
         unsafe {
@@ -199,19 +202,18 @@ impl Buffer {
         Ok(ReadAccess {
             raw,
             _buffer: PhantomData,
-            _element: PhantomData,
         })
     }
 }
 
 /// A scoped write lease over an uninitialized payload.
-pub struct WriteAccess<T> {
+pub struct WriteAccess {
     access: Option<NonNull<ffi::WriteAccess>>,
     owner: Option<OwnedBuffer>,
-    _element: PhantomData<T>,
+    initialized: bool,
 }
 
-impl WriteAccess<MaybeUninit<u8>> {
+impl WriteAccess {
     /// Borrow the uninitialized payload for initialization.
     pub fn as_mut_slice(&mut self) -> &mut [MaybeUninit<u8>] {
         // SAFETY: the native access owns a valid exclusive write lease and
@@ -224,17 +226,19 @@ impl WriteAccess<MaybeUninit<u8>> {
         }
     }
 
-    /// Fill every byte and transition to an initialized [`Buffer`].
-    pub fn fill(mut self, value: u8) -> Buffer {
+    /// Fill every byte, marking the access ready for [`Self::finish`].
+    pub fn fill(&mut self, value: u8) {
         for byte in self.as_mut_slice() {
             byte.write(value);
         }
-        // SAFETY: fill initialized every element above.
-        unsafe { self.assume_init() }
+        self.initialized = true;
     }
 
-    /// Copy an exactly-sized initialized slice and transition to [`Buffer`].
-    pub fn write_from_slice(mut self, source: &[u8]) -> Result<Buffer, Error> {
+    /// Copy an exactly-sized initialized slice.
+    ///
+    /// If the source length is wrong, the write access remains usable and the
+    /// caller can retry without losing the allocation.
+    pub fn write_from_slice(&mut self, source: &[u8]) -> Result<(), Error> {
         let expected = self.as_mut_slice().len();
         if source.len() != expected {
             return Err(Error::LengthMismatch {
@@ -245,7 +249,17 @@ impl WriteAccess<MaybeUninit<u8>> {
         for (destination, source) in self.as_mut_slice().iter_mut().zip(source) {
             destination.write(*source);
         }
-        // SAFETY: the exact-size source initialized every element above.
+        self.initialized = true;
+        Ok(())
+    }
+
+    /// Complete a safe initialization performed by [`Self::fill`] or
+    /// [`Self::write_from_slice`].
+    pub fn finish(self) -> Result<Buffer, Error> {
+        if !self.initialized {
+            return Err(Error::NotInitialized);
+        }
+        // SAFETY: initialized is set only by whole-buffer safe initializers.
         Ok(unsafe { self.assume_init() })
     }
 
@@ -273,7 +287,7 @@ impl WriteAccess<MaybeUninit<u8>> {
     }
 }
 
-impl Deref for WriteAccess<MaybeUninit<u8>> {
+impl Deref for WriteAccess {
     type Target = [MaybeUninit<u8>];
 
     fn deref(&self) -> &Self::Target {
@@ -288,13 +302,13 @@ impl Deref for WriteAccess<MaybeUninit<u8>> {
     }
 }
 
-impl DerefMut for WriteAccess<MaybeUninit<u8>> {
+impl DerefMut for WriteAccess {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<T> Drop for WriteAccess<T> {
+impl Drop for WriteAccess {
     fn drop(&mut self) {
         if let Some(access) = self.access.take() {
             // SAFETY: access is owned by self and is released exactly once.
@@ -305,13 +319,12 @@ impl<T> Drop for WriteAccess<T> {
 }
 
 /// A scoped read-only lease over an initialized [`Buffer`] payload.
-pub struct ReadAccess<'a, T> {
+pub struct ReadAccess<'a> {
     raw: NonNull<ffi::ReadAccess>,
     _buffer: PhantomData<&'a Buffer>,
-    _element: PhantomData<T>,
 }
 
-impl ReadAccess<'_, u8> {
+impl ReadAccess<'_> {
     /// Borrow the initialized payload for the lifetime of this read lease.
     pub fn as_slice(&self) -> &[u8] {
         // SAFETY: the native access owns a valid read lease and reports its
@@ -325,7 +338,7 @@ impl ReadAccess<'_, u8> {
     }
 }
 
-impl Deref for ReadAccess<'_, u8> {
+impl Deref for ReadAccess<'_> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -333,7 +346,7 @@ impl Deref for ReadAccess<'_, u8> {
     }
 }
 
-impl<'a, T> Drop for ReadAccess<'a, T> {
+impl Drop for ReadAccess<'_> {
     fn drop(&mut self) {
         // SAFETY: raw is the access returned by the matching C ABI.
         unsafe { ffi::shared_buffer_c_read_access_destroy(self.raw.as_ptr()) }
@@ -368,19 +381,28 @@ mod tests {
 
     #[test]
     fn safe_helpers_initialize_the_whole_payload() {
-        let buffer = UninitializedBuffer::new(4)
-            .unwrap()
-            .write()
-            .unwrap()
-            .write_from_slice(&[1, 2, 3, 4])
-            .unwrap();
+        let mut write = UninitializedBuffer::new(4).unwrap().write().unwrap();
+        write.write_from_slice(&[1, 2, 3, 4]).unwrap();
+        let buffer = write.finish().unwrap();
         assert_eq!(&*buffer.read().unwrap(), &[1, 2, 3, 4]);
 
-        let filled = UninitializedBuffer::new(2)
-            .unwrap()
-            .write()
-            .unwrap()
-            .fill(7);
+        let mut filled = UninitializedBuffer::new(2).unwrap().write().unwrap();
+        filled.fill(7);
+        let filled = filled.finish().unwrap();
         assert_eq!(&*filled.read().unwrap(), &[7, 7]);
+    }
+
+    #[test]
+    fn length_mismatch_keeps_the_write_access_usable() {
+        let mut write = UninitializedBuffer::new(4).unwrap().write().unwrap();
+        assert_eq!(
+            write.write_from_slice(&[1, 2]),
+            Err(Error::LengthMismatch {
+                expected: 4,
+                actual: 2
+            })
+        );
+        write.write_from_slice(&[1, 2, 3, 4]).unwrap();
+        assert_eq!(&*write.finish().unwrap().read().unwrap(), &[1, 2, 3, 4]);
     }
 }
