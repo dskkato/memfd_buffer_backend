@@ -9,9 +9,9 @@ The crate keeps the native shared-memory allocation alive through
 ```rust
 use shared_buffer_rust::UninitializedBuffer;
 
-let mut write = UninitializedBuffer::new(1024)?.write()?;
-write.fill(7);
-let buffer = write.finish()?;
+let write = UninitializedBuffer::new(1024)?.write()?;
+let initialized = write.fill(7);
+let buffer = initialized.finish();
 {
     let read = buffer.read()?;
     assert_eq!(read[0], 7);
@@ -25,13 +25,13 @@ sourcing the ROS 2 workspace. `cargo` locates the native library through
 installation prefix.
 
 The allocation lifecycle is `UninitializedBuffer -> WriteAccess (MaybeUninit<u8>
-view) -> Buffer -> ReadAccess`. The native write lease is
-one-shot: dropping or finishing it finalizes the buffer, and no later write
-access can be acquired. `write_from_slice` validates the length before
-touching the payload and keeps the write access usable on mismatch. Use
-`write_from_slice` or `fill`, followed by `finish`, for safe initialization;
-`assume_init` is available for callers that initialized every byte manually
-and is `unsafe`.
+view) -> InitializedWriteAccess ([u8] view) -> Buffer -> ReadAccess`. The
+native write lease is one-shot: dropping or finishing it finalizes the buffer,
+and no later write access can be acquired. `write_from_slice` validates the
+length before touching the payload; on mismatch its error can return the write
+access for a retry. Use `write_from_slice` or `fill`, followed by `finish`, for
+safe initialization; `assume_init` is available for callers that initialized
+every byte manually and is `unsafe`.
 
 The crate currently manages shared payloads from Rust. Generated Rust ROS
 messages do not yet expose a portable field type for C++ `rosidl::Buffer`, so

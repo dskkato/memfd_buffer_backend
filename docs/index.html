@@ -329,9 +329,10 @@ message.data = buffer</code></pre>
             <div class="code-title"><span>Write</span><button type="button" class="copy-button dark" data-copy-target="rust-write">Copy</button></div>
             <pre id="rust-write"><code><span class="token-keyword">use</span> shared_buffer_rust::UninitializedBuffer;
 
-<span class="token-keyword">let mut</span> write = UninitializedBuffer::new(byte_count)?.write()?;
-write.write_from_slice(pixels)?;
-<span class="token-keyword">let</span> buffer = write.finish()?;</code></pre>
+<span class="token-keyword">let</span> write = UninitializedBuffer::new(byte_count)?.write()?;
+<span class="token-keyword">let mut</span> initialized = write.fill(0);
+initialized.copy_from_slice(pixels);
+<span class="token-keyword">let</span> buffer = initialized.finish();</code></pre>
           </div>
           <div class="code-column">
             <div class="code-title"><span>Read</span><button type="button" class="copy-button dark" data-copy-target="rust-read">Copy</button></div>

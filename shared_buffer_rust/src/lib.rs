@@ -3,7 +3,7 @@
 //! A payload is deliberately uninitialized when allocated. The public Rust
 //! types make that state explicit:
 //!
-//! `UninitializedBuffer -> WriteAccess -> Buffer -> ReadAccess`
+//! `UninitializedBuffer -> WriteAccess -> InitializedWriteAccess -> Buffer -> ReadAccess`
 //!
 //! The native write lease is one-shot. Dropping a write access finalizes the
 //! allocation; there is no second write access for the resulting `Buffer`.
@@ -69,10 +69,6 @@ pub enum Error {
     AllocationFailed,
     /// The requested read/write lease could not be acquired.
     AccessFailed,
-    /// A source slice does not exactly match the payload size.
-    LengthMismatch { expected: usize, actual: usize },
-    /// The write access has not been fully initialized yet.
-    NotInitialized,
 }
 
 impl fmt::Display for Error {
@@ -81,13 +77,6 @@ impl fmt::Display for Error {
             Self::InvalidArgument => f.write_str("invalid shared-buffer argument"),
             Self::AllocationFailed => f.write_str("shared-buffer allocation failed"),
             Self::AccessFailed => f.write_str("shared-buffer access could not be acquired"),
-            Self::LengthMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "shared-buffer length mismatch: expected {expected}, got {actual}"
-                )
-            }
-            Self::NotInitialized => f.write_str("shared-buffer payload is not initialized"),
         }
     }
 }
@@ -166,7 +155,6 @@ impl UninitializedBuffer {
         Ok(WriteAccess {
             access: Some(raw),
             owner: Some(owner),
-            initialized: false,
         })
     }
 }
@@ -210,7 +198,6 @@ impl Buffer {
 pub struct WriteAccess {
     access: Option<NonNull<ffi::WriteAccess>>,
     owner: Option<OwnedBuffer>,
-    initialized: bool,
 }
 
 impl WriteAccess {
@@ -226,22 +213,26 @@ impl WriteAccess {
         }
     }
 
-    /// Fill every byte, marking the access ready for [`Self::finish`].
-    pub fn fill(&mut self, value: u8) {
+    /// Fill every byte and transition to [`InitializedWriteAccess`].
+    pub fn fill(mut self, value: u8) -> InitializedWriteAccess {
         for byte in self.as_mut_slice() {
             byte.write(value);
         }
-        self.initialized = true;
+        self.into_initialized()
     }
 
     /// Copy an exactly-sized initialized slice.
     ///
-    /// If the source length is wrong, the write access remains usable and the
-    /// caller can retry without losing the allocation.
-    pub fn write_from_slice(&mut self, source: &[u8]) -> Result<(), Error> {
-        let expected = self.as_mut_slice().len();
+    /// If the source length is wrong, the returned error owns the write access
+    /// so the caller can recover it and retry without losing the allocation.
+    pub fn write_from_slice(
+        mut self,
+        source: &[u8],
+    ) -> Result<InitializedWriteAccess, WriteFromSliceError> {
+        let expected = self.access_size();
         if source.len() != expected {
-            return Err(Error::LengthMismatch {
+            return Err(WriteFromSliceError {
+                access: self,
                 expected,
                 actual: source.len(),
             });
@@ -249,32 +240,28 @@ impl WriteAccess {
         for (destination, source) in self.as_mut_slice().iter_mut().zip(source) {
             destination.write(*source);
         }
-        self.initialized = true;
-        Ok(())
+        Ok(self.into_initialized())
     }
 
-    /// Complete a safe initialization performed by [`Self::fill`] or
-    /// [`Self::write_from_slice`].
-    pub fn finish(self) -> Result<Buffer, Error> {
-        if !self.initialized {
-            return Err(Error::NotInitialized);
-        }
-        // SAFETY: initialized is set only by whole-buffer safe initializers.
-        Ok(unsafe { self.assume_init() })
-    }
-
-    /// Treat the payload as initialized and transition to [`Buffer`].
+    /// Treat the payload as initialized and transition to
+    /// [`InitializedWriteAccess`].
     ///
     /// # Safety
     ///
     /// Every byte in the payload must have been initialized through
     /// [`Self::as_mut_slice`] before calling this method.
-    pub unsafe fn assume_init(mut self) -> Buffer {
+    pub unsafe fn assume_init(self) -> InitializedWriteAccess {
+        self.into_initialized()
+    }
+
+    fn into_initialized(mut self) -> InitializedWriteAccess {
         let access = self.access.take().expect("write access must be present");
         let owner = self.owner.take().expect("buffer owner must be present");
-        // Destroying the native write access finalizes the one-shot write.
-        ffi::shared_buffer_c_write_access_destroy(access.as_ptr());
-        Buffer { owner }
+        std::mem::forget(self);
+        InitializedWriteAccess {
+            access: Some(access),
+            owner: Some(owner),
+        }
     }
 
     fn access_ptr(&self) -> *mut ffi::WriteAccess {
@@ -309,6 +296,123 @@ impl DerefMut for WriteAccess {
 }
 
 impl Drop for WriteAccess {
+    fn drop(&mut self) {
+        if let Some(access) = self.access.take() {
+            // SAFETY: access is owned by self and is released exactly once.
+            unsafe { ffi::shared_buffer_c_write_access_destroy(access.as_ptr()) }
+        }
+        drop(self.owner.take());
+    }
+}
+
+/// Error returned when a source slice cannot initialize the write access.
+///
+/// The original write access is retained so the caller can correct the input
+/// and retry without reallocating.
+pub struct WriteFromSliceError {
+    access: WriteAccess,
+    expected: usize,
+    actual: usize,
+}
+
+impl fmt::Debug for WriteFromSliceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WriteFromSliceError")
+            .field("expected", &self.expected)
+            .field("actual", &self.actual)
+            .finish_non_exhaustive()
+    }
+}
+
+impl WriteFromSliceError {
+    /// Return the required payload size.
+    pub fn expected(&self) -> usize {
+        self.expected
+    }
+
+    /// Return the rejected source size.
+    pub fn actual(&self) -> usize {
+        self.actual
+    }
+
+    /// Recover the write access for a corrected retry.
+    pub fn into_write_access(self) -> WriteAccess {
+        self.access
+    }
+}
+
+impl fmt::Display for WriteFromSliceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "shared-buffer length mismatch: expected {}, got {}",
+            self.expected, self.actual
+        )
+    }
+}
+
+impl std::error::Error for WriteFromSliceError {}
+
+/// A write lease whose entire payload is initialized.
+pub struct InitializedWriteAccess {
+    access: Option<NonNull<ffi::WriteAccess>>,
+    owner: Option<OwnedBuffer>,
+}
+
+impl InitializedWriteAccess {
+    /// Borrow the initialized payload mutably.
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: the type invariant guarantees that every byte is initialized
+        // and the native access remains an exclusive write lease.
+        unsafe {
+            slice::from_raw_parts_mut(
+                ffi::shared_buffer_c_write_access_data(self.access_ptr()),
+                self.access_size(),
+            )
+        }
+    }
+
+    /// Finalize the one-shot write and return the readable buffer.
+    pub fn finish(mut self) -> Buffer {
+        let access = self.access.take().expect("write access must be present");
+        let owner = self.owner.take().expect("buffer owner must be present");
+        // Destroying the native write access finalizes the one-shot write.
+        unsafe { ffi::shared_buffer_c_write_access_destroy(access.as_ptr()) };
+        std::mem::forget(self);
+        Buffer { owner }
+    }
+
+    fn access_ptr(&self) -> *mut ffi::WriteAccess {
+        self.access.expect("write access must be present").as_ptr()
+    }
+
+    fn access_size(&self) -> usize {
+        // SAFETY: access_ptr is valid while self is alive.
+        unsafe { ffi::shared_buffer_c_write_access_size(self.access_ptr()) }
+    }
+}
+
+impl Deref for InitializedWriteAccess {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: the type invariant guarantees initialized bytes.
+        unsafe {
+            slice::from_raw_parts(
+                ffi::shared_buffer_c_write_access_data(self.access_ptr()),
+                self.access_size(),
+            )
+        }
+    }
+}
+
+impl DerefMut for InitializedWriteAccess {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+
+impl Drop for InitializedWriteAccess {
     fn drop(&mut self) {
         if let Some(access) = self.access.take() {
             // SAFETY: access is owned by self and is released exactly once.
@@ -374,35 +478,38 @@ mod tests {
         for (index, byte) in bytes.iter_mut().enumerate() {
             byte.write((index + 1) as u8);
         }
-        let buffer: Buffer = unsafe { write.assume_init() };
+        let buffer: Buffer = unsafe { write.assume_init() }.finish();
         let read = buffer.read().unwrap();
         assert_eq!(&*read, &[1, 2, 3, 4]);
     }
 
     #[test]
     fn safe_helpers_initialize_the_whole_payload() {
-        let mut write = UninitializedBuffer::new(4).unwrap().write().unwrap();
-        write.write_from_slice(&[1, 2, 3, 4]).unwrap();
-        let buffer = write.finish().unwrap();
+        let write = UninitializedBuffer::new(4).unwrap().write().unwrap();
+        let buffer = write.write_from_slice(&[1, 2, 3, 4]).unwrap().finish();
         assert_eq!(&*buffer.read().unwrap(), &[1, 2, 3, 4]);
 
-        let mut filled = UninitializedBuffer::new(2).unwrap().write().unwrap();
-        filled.fill(7);
-        let filled = filled.finish().unwrap();
+        let filled = UninitializedBuffer::new(2)
+            .unwrap()
+            .write()
+            .unwrap()
+            .fill(7)
+            .finish();
         assert_eq!(&*filled.read().unwrap(), &[7, 7]);
     }
 
     #[test]
     fn length_mismatch_keeps_the_write_access_usable() {
-        let mut write = UninitializedBuffer::new(4).unwrap().write().unwrap();
-        assert_eq!(
-            write.write_from_slice(&[1, 2]),
-            Err(Error::LengthMismatch {
-                expected: 4,
-                actual: 2
-            })
-        );
-        write.write_from_slice(&[1, 2, 3, 4]).unwrap();
-        assert_eq!(&*write.finish().unwrap().read().unwrap(), &[1, 2, 3, 4]);
+        let write = UninitializedBuffer::new(4).unwrap().write().unwrap();
+        let write = match write.write_from_slice(&[1, 2]) {
+            Err(error) => {
+                assert_eq!(error.expected(), 4);
+                assert_eq!(error.actual(), 2);
+                error.into_write_access()
+            }
+            Ok(_) => panic!("short input unexpectedly initialized the buffer"),
+        };
+        let buffer = write.write_from_slice(&[1, 2, 3, 4]).unwrap().finish();
+        assert_eq!(&*buffer.read().unwrap(), &[1, 2, 3, 4]);
     }
 }
