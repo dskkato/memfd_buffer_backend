@@ -21,7 +21,7 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
 ament_auto_add_library(${PROJECT_NAME} SHARED
-  src/memfd_buffer_backend_plugin.cpp
+  src/shared_buffer_backend_plugin.cpp
 )
 set_target_properties(${PROJECT_NAME} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
@@ -31,17 +31,17 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME}
-  ${memfd_buffer_backend_msgs_TARGETS}
+  ${shared_buffer_backend_msgs_TARGETS}
   rosidl_buffer_backend::rosidl_buffer_backend
   rosidl_runtime_cpp::rosidl_runtime_cpp
   rosidl_buffer_backend_registry::rosidl_buffer_backend_registry
   rosidl_typesupport_cpp::rosidl_typesupport_cpp
   pluginlib::pluginlib
-  memfd_buffer::memfd_buffer
+  shared_buffer::shared_buffer
   rcutils::rcutils
 )
 
-pluginlib_export_plugin_description_file(rosidl_buffer_backend memfd_buffer_plugin.xml)
+pluginlib_export_plugin_description_file(rosidl_buffer_backend shared_buffer_plugin.xml)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -55,55 +55,55 @@ if(BUILD_TESTING)
   find_package(std_msgs REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
 
-  ament_add_gtest(test_memfd_buffer_backend
-    test/test_memfd_buffer_backend.cpp
+  ament_add_gtest(test_shared_buffer_backend
+    test/test_shared_buffer_backend.cpp
   )
-  if(TARGET test_memfd_buffer_backend)
-    target_link_libraries(test_memfd_buffer_backend
+  if(TARGET test_shared_buffer_backend)
+    target_link_libraries(test_shared_buffer_backend
       ${PROJECT_NAME}
-      memfd_buffer::memfd_buffer
-      ${memfd_buffer_backend_msgs_TARGETS}
+      shared_buffer::shared_buffer
+      ${shared_buffer_backend_msgs_TARGETS}
       rosidl_buffer_backend::rosidl_buffer_backend
       rosidl_runtime_cpp::rosidl_runtime_cpp
       rosidl_typesupport_cpp::rosidl_typesupport_cpp
     )
   endif()
 
-  ament_auto_add_library(memfd_image_dso_publisher_component SHARED
+  ament_auto_add_library(shared_image_dso_publisher_component SHARED
     NO_TARGET_LINK_LIBRARIES
-    test/src/memfd_image_dso_publisher_node.cpp
+    test/src/shared_image_dso_publisher_node.cpp
   )
-  set_target_properties(memfd_image_dso_publisher_component PROPERTIES
+  set_target_properties(shared_image_dso_publisher_component PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
   )
-  target_link_libraries(memfd_image_dso_publisher_component
-    memfd_buffer::memfd_buffer
+  target_link_libraries(shared_image_dso_publisher_component
+    shared_buffer::shared_buffer
     rclcpp::rclcpp
     rclcpp_components::component
     ${sensor_msgs_TARGETS}
     rosidl_runtime_cpp::rosidl_runtime_cpp
   )
-  rclcpp_components_register_nodes(memfd_image_dso_publisher_component
-    "MemfdImageDsoPublisher")
+  rclcpp_components_register_nodes(shared_image_dso_publisher_component
+    "SharedImageDsoPublisher")
 
-  ament_auto_add_library(memfd_image_subscriber_component SHARED
+  ament_auto_add_library(shared_image_subscriber_component SHARED
     NO_TARGET_LINK_LIBRARIES
-    test/src/memfd_image_subscriber_node.cpp
+    test/src/shared_image_subscriber_node.cpp
   )
-  target_link_libraries(memfd_image_subscriber_component
-    memfd_buffer::memfd_buffer
+  target_link_libraries(shared_image_subscriber_component
+    shared_buffer::shared_buffer
     rclcpp::rclcpp
     rclcpp_components::component
     ${sensor_msgs_TARGETS}
     ${std_msgs_TARGETS}
     rosidl_runtime_cpp::rosidl_runtime_cpp
   )
-  rclcpp_components_register_nodes(memfd_image_subscriber_component
-    "MemfdImageSubscriber")
+  rclcpp_components_register_nodes(shared_image_subscriber_component
+    "SharedImageSubscriber")
 
-  add_launch_test(test/test_memfd_pool_dso_fastrtps_launch.py
-    TARGET test_memfd_pool_dso_fastrtps_launch
+  add_launch_test(test/test_shared_buffer_pool_dso_fastrtps_launch.py
+    TARGET test_shared_buffer_pool_dso_fastrtps_launch
     TIMEOUT 45
     ENV "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/ros_log"
   )

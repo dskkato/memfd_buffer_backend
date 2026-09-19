@@ -2,7 +2,7 @@
 <package format="3">
   <name>shared_buffer_backend</name>
   <version>0.1.0</version>
-  <description>Pluginlib backend for memfd-backed rosidl::Buffer transport.</description>
+  <description>Pluginlib backend for shared-memory rosidl::Buffer transport.</description>
 
   <maintainer email="kato.daisuke429@gmail.com">dskkato</maintainer>
   <license>Apache-2.0</license>
@@ -10,8 +10,8 @@
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
-  <depend>memfd_buffer</depend>
-  <depend>memfd_buffer_backend_msgs</depend>
+  <depend>shared_buffer</depend>
+  <depend>shared_buffer_backend_msgs</depend>
   <depend>pluginlib</depend>
   <depend>rcutils</depend>
   <depend>rosidl_buffer_backend</depend>
