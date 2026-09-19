@@ -29,8 +29,8 @@ with add_dll_directories_from_env('PATH'):
     from rosidl_buffer import Buffer
 
 
-class _Access:
-    """Own a native access lease and its directly-created memoryview."""
+class WriteAccess:
+    """Own a scoped native write lease and its directly-created memoryview."""
 
     def __init__(self, native: Any) -> None:
         self._native: Optional[Any] = native
@@ -71,22 +71,19 @@ class _Access:
         return False
 
 
-class ReadAccess(_Access):
-    """Scoped, read-only zero-copy access to a ROS buffer payload."""
+ReadAccess = memoryview
 
 
-class WriteAccess(_Access):
-    """Scoped, writable zero-copy access to a shared buffer payload."""
-
-
-def read_buffer(buffer: Buffer) -> ReadAccess:
+def read_buffer(buffer: Buffer) -> memoryview:
     """
-    Acquire scoped read access.
+    Return a read-only view whose lifetime owns the native read lease.
 
     Access to a shared-memory-backed buffer is zero-copy. Other backends follow the
     C++ shared-buffer promotion path and may copy into a temporary shared-memory allocation.
+    The lease remains alive through derived buffer objects such as NumPy arrays and is
+    released automatically after the last view is destroyed.
     """
-    return ReadAccess(_NativeReadAccess(buffer))
+    return memoryview(_NativeReadAccess(buffer))
 
 
 def write_buffer(buffer: Buffer) -> WriteAccess:

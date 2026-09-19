@@ -51,12 +51,12 @@ def test_numpy_view_is_zero_copy() -> None:
         array[:] = numpy.arange(32, dtype=numpy.uint8)
         del array
 
-    with read_buffer(buffer) as view:
-        array = numpy.frombuffer(view, dtype=numpy.uint8)
-        assert view.readonly
-        assert not array.flags.writeable
-        assert array.tolist() == list(range(32))
-        del array
+    view = read_buffer(buffer)
+    array = numpy.frombuffer(view, dtype=numpy.uint8)
+    assert isinstance(view, memoryview)
+    assert view.readonly
+    assert not array.flags.writeable
+    assert array.tolist() == list(range(32))
 
 
 def test_ros_message_field_retains_shared_buffer() -> None:
@@ -69,8 +69,22 @@ def test_ros_message_field_retains_shared_buffer() -> None:
 
     assert message.data is buffer
     assert message.data.backend_type == 'shared_buffer'
-    with read_buffer(message.data) as view:
-        assert view.tobytes() == b'ros2data'
+    view = read_buffer(message.data)
+    assert view.tobytes() == b'ros2data'
+
+
+def test_numpy_view_keeps_read_lease_alive() -> None:
+    buffer = allocate_buffer(8)
+    with write_buffer(buffer) as view:
+        view[:] = b'lifetime'
+
+    view = read_buffer(buffer)
+    array = numpy.frombuffer(view, dtype=numpy.uint8)
+    del view
+    del buffer
+    gc.collect()
+
+    assert array.tobytes() == b'lifetime'
 
 
 def test_access_keeps_buffer_alive() -> None:
@@ -116,8 +130,7 @@ def test_access_state_rules() -> None:
 
     first = read_buffer(buffer)
     second = read_buffer(buffer)
-    with first as first_view, second as second_view:
-        assert first_view[0] == second_view[0] == 42
+    assert first[0] == second[0] == 42
 
 
 def test_invalid_inputs_and_closed_access() -> None:
