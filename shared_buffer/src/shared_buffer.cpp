@@ -16,6 +16,8 @@
 
 #include <stdexcept>
 
+#include "rcutils/logging_macros.h"
+
 namespace shared_buffer
 {
 
@@ -34,6 +36,19 @@ std::shared_ptr<void> make_lease(SharedBufferControlHeader * control)
              auto * header = static_cast<SharedBufferControlHeader *>(ptr);
              release_shared_buffer_reader(header);
   });
+}
+
+void warn_unadopted_output_promotion(
+  const std::shared_ptr<rosidl::Buffer<std::uint8_t>> & promoted_buffer)
+{
+  if (promoted_buffer == nullptr || promoted_buffer->size() == 0) {
+    return;
+  }
+  RCUTILS_LOG_WARN_ONCE_NAMED(
+    "shared_buffer",
+    "from_output_buffer() promoted a non-shared buffer to shared_buffer; "
+    "ensure the promoted buffer replaces the original message data field "
+    "before publishing (e.g. msg.data = std::move(*handle.get_promoted_buffer())).");
 }
 
 }  // namespace
@@ -123,6 +138,7 @@ WriteHandle::~WriteHandle() {release();}
 
 void WriteHandle::release() noexcept
 {
+  warn_unadopted_output_promotion(promoted_buffer_);
   if (state_ != nullptr) {
     std::lock_guard<std::mutex> lock(state_->mutex);
     state_->state = HandleState::State::Finalized;

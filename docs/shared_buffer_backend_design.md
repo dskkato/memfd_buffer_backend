@@ -430,12 +430,15 @@ or concurrently modifying it is outside the backend contract.
 The API accepts generic `rosidl::Buffer<T>` values as the CUDA backend API does:
 
 - `from_output_buffer()` promotes a non-shared-memory buffer by allocating a fresh
-  shared-memory-backed buffer for the output. The returned `WriteHandle` owns the
-  promoted buffer until the caller moves it back into the message field via
-  `get_promoted_buffer()` (for example,
+  shared-memory-backed `rosidl::Buffer<uint8_t>` for the output. This promotion
+  path is limited to `T = uint8_t`; other element types must already be backed by
+  `shared_buffer`. The returned `WriteHandle` owns the promoted buffer until the
+  caller moves it back into the message field via `get_promoted_buffer()` (for example,
   `msg.data = std::move(*write.get_promoted_buffer())`); otherwise the publisher
   would serialize the original buffer rather than the buffer being written. A
-  one-time warning is emitted to make this required assignment visible.
+  one-time warning is emitted when the handle is destroyed while the promoted
+  buffer was not adopted. This avoids warning for bindings that adopt it
+  automatically.
 - `from_input_buffer()` promotes a non-shared-memory buffer by allocating a pooled
   shared-memory buffer and performing a synchronous CPU `memcpy` into it. The returned
   read handle then exposes the shared-memory-backed copy.

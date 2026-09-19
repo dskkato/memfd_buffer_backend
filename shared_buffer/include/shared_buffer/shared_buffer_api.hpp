@@ -19,10 +19,10 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "rcutils/logging_macros.h"
 #include "shared_buffer/shared_buffer_impl.hpp"
 #include "rosidl_buffer/buffer.hpp"
 
@@ -58,15 +58,6 @@ inline SharedBufferImpl<T> * shared_buffer_impl_of(rosidl::Buffer<T> & buffer)
   return dynamic_cast<SharedBufferImpl<T> *>(buffer.get_impl());
 }
 
-inline void warn_output_buffer_promotion()
-{
-  RCUTILS_LOG_WARN_ONCE_NAMED(
-    "shared_buffer",
-    "from_output_buffer() promoted a non-shared buffer to shared_buffer; "
-    "ensure the promoted buffer replaces the original message data field "
-    "before publishing (e.g. msg.data = std::move(*handle.get_promoted_buffer())).");
-}
-
 }  // namespace detail
 
 /// \brief Acquire exclusive mutable access to an output buffer payload.
@@ -76,6 +67,8 @@ inline void warn_output_buffer_promotion()
 /// shared-memory-backed \c rosidl::Buffer<std::uint8_t> is allocated and attached
 /// to the returned handle as its promoted buffer. The caller must replace the
 /// message field with \c WriteHandle::get_promoted_buffer() before publishing.
+/// Promotion of non-shared buffers is supported only for \c uint8_t buffers;
+/// other element types must already use the shared-memory backend.
 template<typename T>
 WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 {
@@ -92,6 +85,11 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
     return shared_buffer_impl->get_shared_buffer().get_write_handle();
   }
 
+  if constexpr (!std::is_same_v<T, std::uint8_t>) {
+    throw SharedBufferError(
+            "from_output_buffer can only promote non-shared buffers with uint8_t elements");
+  }
+
   if (buffer.size() > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
     throw SharedBufferError("output buffer size overflows size_t");
   }
@@ -100,7 +98,6 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
   auto * promoted_impl = detail::shared_buffer_impl_of(*promoted);
   auto write = promoted_impl->get_shared_buffer().get_write_handle();
   write.set_promoted_buffer(std::move(promoted));
-  detail::warn_output_buffer_promotion();
   return write;
 }
 

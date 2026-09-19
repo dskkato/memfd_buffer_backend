@@ -139,6 +139,21 @@ TEST(SharedBufferTest, PromotesNonSharedBufferOutputBuffer)
   EXPECT_EQ(0xB7, read.get_ptr()[7]);
 }
 
+TEST(SharedBufferTest, RejectsNonByteOutputPromotion)
+{
+  rosidl::Buffer<float> cpu(16);
+  EXPECT_THROW(shared_buffer::from_output_buffer(cpu), shared_buffer::SharedBufferError);
+}
+
+TEST(SharedBufferTest, SupportsSharedOutputBufferForNonByteType)
+{
+  rosidl::Buffer<float> buffer(
+    std::make_unique<shared_buffer::SharedBufferImpl<float>>(16));
+  auto write = shared_buffer::from_output_buffer(buffer);
+  EXPECT_EQ(nullptr, write.get_promoted_buffer());
+  ASSERT_NE(nullptr, write.get_ptr());
+}
+
 TEST(SharedBufferTest, RejectsConcurrentAndFinalizedWriters)
 {
   auto buffer = shared_buffer::allocate_buffer(8);

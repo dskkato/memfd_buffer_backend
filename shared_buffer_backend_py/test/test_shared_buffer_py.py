@@ -41,6 +41,17 @@ def test_allocate_and_write_with_memoryview() -> None:
     assert buffer.to_bytes() == bytes(range(16))
 
 
+def test_write_buffer_round_trip() -> None:
+    buffer = allocate_buffer(8)
+
+    with write_buffer(buffer) as view:
+        view[:] = b'py-data!'
+
+    assert buffer.backend_type == 'shared_buffer'
+    with read_buffer(buffer) as view:
+        assert view.tobytes() == b'py-data!'
+
+
 def test_numpy_view_is_zero_copy() -> None:
     buffer = allocate_buffer(32)
 
