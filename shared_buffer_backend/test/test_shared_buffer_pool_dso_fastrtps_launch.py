@@ -84,6 +84,7 @@ def generate_test_description():
                 parameters=[{
                     'input_topic': 'test_shared_buffer_image_dso_relay',
                     'result_prefix': 'shared_buffer_relay_dso',
+                    'frame_id_prefix': 'relayed/shared_buffer_pool_dso_',
                 }],
             ),
         ],

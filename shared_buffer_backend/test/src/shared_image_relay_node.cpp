@@ -15,14 +15,16 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
-/// A zero-copy forwarding node: it subscribes to a shared-buffer-backed image
-/// and republishes the same message object. The backend serializes the
-/// imported buffer's original IPC descriptor instead of copying the payload.
+/// A zero-copy forwarding node: it subscribes to a shared-buffer-backed image,
+/// creates a new Image message, and moves the data buffer into it. The backend
+/// serializes the imported buffer's original IPC descriptor instead of copying
+/// the payload.
 class SharedImageRelay : public rclcpp::Node
 {
 public:
@@ -44,11 +46,21 @@ public:
   }
 
 private:
-  void image_callback(std::shared_ptr<const sensor_msgs::msg::Image> msg)
+  void image_callback(sensor_msgs::msg::Image::UniquePtr msg)
   {
-    // publish(const MessageT &) keeps the received buffer implementation
-    // intact. No vector conversion or allocation is performed here.
-    publisher_->publish(*msg);
+    // Allocate a different message instance and copy only its metadata. The
+    // Buffer move transfers the imported backend implementation; using a copy
+    // assignment here would clone the payload and lose zero-copy forwarding.
+    auto forwarded = std::make_unique<sensor_msgs::msg::Image>();
+    forwarded->header = msg->header;
+    forwarded->height = msg->height;
+    forwarded->width = msg->width;
+    forwarded->encoding = msg->encoding;
+    forwarded->is_bigendian = msg->is_bigendian;
+    forwarded->step = msg->step;
+    forwarded->header.frame_id = "relayed/" + msg->header.frame_id;
+    forwarded->data = std::move(msg->data);
+    publisher_->publish(std::move(forwarded));
   }
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;

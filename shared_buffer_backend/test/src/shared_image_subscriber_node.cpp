@@ -37,6 +37,8 @@ public:
       "input_topic", "test_shared_buffer_image_dso");
     const auto result_prefix = declare_parameter<std::string>(
       "result_prefix", "shared_buffer_dso");
+    frame_id_prefix_ = declare_parameter<std::string>(
+      "frame_id_prefix", "shared_buffer_pool_dso_");
 
     rclcpp::SubscriptionOptions subscription_options;
     // Reject CPU fallback at endpoint matching time.  The test must fail if
@@ -69,7 +71,7 @@ private:
   {
     ++received_count_;
     bool metadata_valid = msg->header.frame_id ==
-      "shared_buffer_pool_dso_" + std::to_string(received_count_);
+      frame_id_prefix_ + std::to_string(received_count_);
     metadata_valid = metadata_valid && msg->height == 16u && msg->width == 256u;
     metadata_valid = metadata_valid && msg->encoding == "mono8" && msg->step == 256u;
     metadata_valid = metadata_valid && msg->data.size() == 4096u;
@@ -136,6 +138,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr metadata_publisher_;
   std::uint32_t received_count_{0};
   bool validation_passed_{true};
+  std::string frame_id_prefix_;
 };
 
 RCLCPP_COMPONENTS_REGISTER_NODE(SharedImageSubscriber)

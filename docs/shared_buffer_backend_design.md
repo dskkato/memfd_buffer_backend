@@ -109,9 +109,10 @@ not weaken stale-message detection.
 
 ## Forwarding an imported buffer
 
-A relay can subscribe to a shared-buffer-backed message and publish the same
-message without copying its payload. The relay's buffer is an imported view,
-not a block in the relay process's `SharedBufferMemoryPool`:
+A relay can subscribe to a shared-buffer-backed message, construct another
+message instance, and publish it without copying its payload. The relay's
+buffer is an imported view, not a block in the relay process's
+`SharedBufferMemoryPool`:
 
 ```mermaid
 sequenceDiagram
@@ -142,8 +143,11 @@ descriptor is imported, the source pool may reuse it after the grace period;
 the forwarded UID then fails validation and the descriptor is rejected rather
 than exposing a reused payload. Applications that require reliable forwarding
 must retain the source message or use a transport-level acknowledgement until
-the downstream import has completed. The component sample
-`SharedImageRelay` demonstrates the normal callback-scoped case.
+the downstream import has completed. The component sample `SharedImageRelay`
+demonstrates the normal callback-scoped case. It receives an `Image::UniquePtr`,
+creates a new `Image`, copies the scalar/header fields, and move-assigns `data`;
+copying the buffer field instead would clone the payload and lose the zero-copy
+path.
 
 ## IPC capability decision
 
