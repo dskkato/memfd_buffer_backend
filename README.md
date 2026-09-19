@@ -57,5 +57,5 @@ escape the scope, and closing raises `BufferError` while one remains alive.
 ## Benchmark
 
 The benchmark package, benchmark results, report, and figures are maintained
-in the separate [`memfd_buffer_backend_benchmark`](https://github.com/dskkato/memfd_buffer_backend_benchmark)
+in the separate [`shared_buffer_backend_benchmark`](https://github.com/dskkato/shared_buffer_backend_benchmark)
 repository.
