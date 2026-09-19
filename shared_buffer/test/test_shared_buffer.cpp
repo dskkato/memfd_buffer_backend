@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -113,10 +114,29 @@ TEST(SharedBufferTest, PromotesCpuInputBuffer)
   EXPECT_EQ(0xA7, read.get_ptr()[7]);
 }
 
-TEST(SharedBufferTest, RejectsNonSharedBufferOutputBuffer)
+TEST(SharedBufferTest, PromotesNonSharedBufferOutputBuffer)
 {
   rosidl::Buffer<std::uint8_t> cpu(8);
-  EXPECT_THROW(shared_buffer::from_output_buffer(cpu), shared_buffer::SharedBufferError);
+  {
+    auto write = shared_buffer::from_output_buffer(cpu);
+    auto promoted = write.get_promoted_buffer();
+    ASSERT_NE(nullptr, promoted);
+    EXPECT_EQ("shared_buffer", promoted->get_backend_type());
+    EXPECT_EQ(8u, promoted->size());
+    ASSERT_NE(nullptr, write.get_ptr());
+    for (std::size_t i = 0; i < promoted->size(); ++i) {
+      write.get_ptr()[i] = static_cast<std::uint8_t>(0xB0 + i);
+    }
+
+    cpu = std::move(*promoted);
+  }
+
+  EXPECT_EQ("shared_buffer", cpu.get_backend_type());
+  const auto & const_cpu = cpu;
+  auto read = shared_buffer::from_input_buffer(const_cpu);
+  ASSERT_NE(nullptr, read.get_ptr());
+  EXPECT_EQ(0xB0, read.get_ptr()[0]);
+  EXPECT_EQ(0xB7, read.get_ptr()[7]);
 }
 
 TEST(SharedBufferTest, RejectsConcurrentAndFinalizedWriters)

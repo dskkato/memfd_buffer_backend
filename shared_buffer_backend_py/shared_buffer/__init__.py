@@ -76,7 +76,12 @@ class ReadAccess(_Access):
 
 
 class WriteAccess(_Access):
-    """Scoped, writable zero-copy access to a shared buffer payload."""
+    """
+    Scoped, writable access to a shared buffer payload.
+
+    Non-shared buffers are promoted and adopted by the Python ``Buffer`` object
+    before the writable view is exposed.
+    """
 
 
 def read_buffer(buffer: Buffer) -> ReadAccess:
@@ -90,7 +95,7 @@ def read_buffer(buffer: Buffer) -> ReadAccess:
 
 
 def write_buffer(buffer: Buffer) -> WriteAccess:
-    """Acquire scoped writable access to an existing shared-memory-backed buffer."""
+    """Acquire scoped writable access, promoting non-shared buffers as needed."""
     return WriteAccess(_NativeWriteAccess(buffer))
 
 

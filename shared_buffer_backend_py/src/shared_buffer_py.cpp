@@ -163,6 +163,11 @@ public:
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
     }
     handle_ = from_output_buffer(*buffer_);
+    if (auto promoted = handle_.get_promoted_buffer()) {
+      // The Python Buffer object is the message field owner, so adopt the
+      // promoted implementation here before exposing its memoryview.
+      *buffer_ = std::move(*promoted);
+    }
   }
 
   NativeWriteAccess(const NativeWriteAccess &) = delete;

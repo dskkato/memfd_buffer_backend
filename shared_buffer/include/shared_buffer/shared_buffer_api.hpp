@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "rcutils/logging_macros.h"
 #include "shared_buffer/shared_buffer_impl.hpp"
 #include "rosidl_buffer/buffer.hpp"
 
@@ -57,15 +58,24 @@ inline SharedBufferImpl<T> * shared_buffer_impl_of(rosidl::Buffer<T> & buffer)
   return dynamic_cast<SharedBufferImpl<T> *>(buffer.get_impl());
 }
 
+inline void warn_output_buffer_promotion()
+{
+  RCUTILS_LOG_WARN_ONCE_NAMED(
+    "shared_buffer",
+    "from_output_buffer() promoted a non-shared buffer to shared_buffer; "
+    "ensure the promoted buffer replaces the original message data field "
+    "before publishing (e.g. msg.data = std::move(*handle.get_promoted_buffer())).");
+}
+
 }  // namespace detail
 
-/// \brief Acquire exclusive mutable access to a shared-memory-backed buffer payload.
+/// \brief Acquire exclusive mutable access to an output buffer payload.
 ///
-/// \details The input buffer must have a non-null implementation, contain at
-/// least one element, and already be shared-memory-backed. This function does not
-/// convert or replace buffers from another backend. Rejecting those buffers is
-/// intentional: a handle for a newly allocated, detached shared-memory buffer would
-/// not be reflected by the original buffer during message publication.
+/// \details The input buffer must have a non-null implementation and contain at
+/// least one element. If it is not already shared-memory-backed, a fresh
+/// shared-memory-backed \c rosidl::Buffer<std::uint8_t> is allocated and attached
+/// to the returned handle as its promoted buffer. The caller must replace the
+/// message field with \c WriteHandle::get_promoted_buffer() before publishing.
 template<typename T>
 WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 {
@@ -78,10 +88,20 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
   }
 
   auto * shared_buffer_impl = dynamic_cast<SharedBufferImpl<T> *>(impl);
-  if (shared_buffer_impl == nullptr) {
-    throw SharedBufferError("from_output_buffer requires a shared-memory-backed buffer");
+  if (shared_buffer_impl != nullptr) {
+    return shared_buffer_impl->get_shared_buffer().get_write_handle();
   }
-  return shared_buffer_impl->get_shared_buffer().get_write_handle();
+
+  if (buffer.size() > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+    throw SharedBufferError("output buffer size overflows size_t");
+  }
+  const std::size_t bytes = buffer.size() * sizeof(T);
+  auto promoted = detail::allocate_shared_buffer_shared(bytes);
+  auto * promoted_impl = detail::shared_buffer_impl_of(*promoted);
+  auto write = promoted_impl->get_shared_buffer().get_write_handle();
+  write.set_promoted_buffer(std::move(promoted));
+  detail::warn_output_buffer_promotion();
+  return write;
 }
 
 /// \brief Acquire read-only access to a buffer payload.
