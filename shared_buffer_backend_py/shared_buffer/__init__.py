@@ -26,6 +26,7 @@ with add_dll_directories_from_env('PATH'):
     from shared_buffer._shared_buffer_py import _NativeReadAccess
     from shared_buffer._shared_buffer_py import _NativeWriteAccess
     from shared_buffer._shared_buffer_py import allocate_buffer
+    from shared_buffer._shared_buffer_py import allocate_cpu_buffer
     from rosidl_buffer import Buffer
 
 
@@ -76,7 +77,12 @@ class ReadAccess(_Access):
 
 
 class WriteAccess(_Access):
-    """Scoped, writable zero-copy access to a shared buffer payload."""
+    """
+    Scoped, writable access to a shared buffer payload.
+
+    Non-shared buffers are promoted and adopted by the Python ``Buffer`` object
+    before the writable view is exposed.
+    """
 
 
 def read_buffer(buffer: Buffer) -> ReadAccess:
@@ -90,7 +96,7 @@ def read_buffer(buffer: Buffer) -> ReadAccess:
 
 
 def write_buffer(buffer: Buffer) -> WriteAccess:
-    """Acquire scoped writable access to an existing shared-memory-backed buffer."""
+    """Acquire scoped writable access, promoting non-shared buffers as needed."""
     return WriteAccess(_NativeWriteAccess(buffer))
 
 
@@ -99,6 +105,7 @@ __all__ = [
     'ReadAccess',
     'WriteAccess',
     'allocate_buffer',
+    'allocate_cpu_buffer',
     'read_buffer',
     'write_buffer',
 ]

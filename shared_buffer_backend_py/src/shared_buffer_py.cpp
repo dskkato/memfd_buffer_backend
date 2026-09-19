@@ -94,6 +94,20 @@ py::object allocate_buffer_internal(std::size_t byte_count)
   return take_buffer_from_ptr(std::move(buffer));
 }
 
+py::object allocate_cpu_buffer_internal(std::size_t byte_count)
+{
+  if (byte_count == 0) {
+    throw py::value_error("byte_count must be greater than zero");
+  }
+  if (byte_count > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max())) {
+    throw std::overflow_error("byte_count exceeds Python buffer protocol limits");
+  }
+
+  auto buffer = std::make_unique<rosidl::Buffer<std::uint8_t>>(byte_count);
+
+  return take_buffer_from_ptr(std::move(buffer));
+}
+
 class NativeReadAccess
 {
 public:
@@ -163,6 +177,11 @@ public:
       throw std::overflow_error("buffer size exceeds Python buffer protocol limits");
     }
     handle_ = from_output_buffer(*buffer_);
+    if (auto promoted = handle_.get_promoted_buffer()) {
+      // The Python Buffer object is the message field owner, so adopt the
+      // promoted implementation here before exposing its memoryview.
+      *buffer_ = std::move(*promoted);
+    }
   }
 
   NativeWriteAccess(const NativeWriteAccess &) = delete;
@@ -291,4 +310,6 @@ PYBIND11_MODULE(_shared_buffer_py, module)
 
   module.def(
     "allocate_buffer", &shared_buffer::allocate_buffer_internal, py::arg("byte_count"));
+  module.def(
+    "allocate_cpu_buffer", &shared_buffer::allocate_cpu_buffer_internal, py::arg("byte_count"));
 }

@@ -20,6 +20,7 @@ import pytest
 from rosidl_buffer import Buffer
 from sensor_msgs.msg import Image
 from shared_buffer import allocate_buffer
+from shared_buffer import allocate_cpu_buffer
 from shared_buffer import read_buffer
 from shared_buffer import write_buffer
 
@@ -39,6 +40,18 @@ def test_allocate_and_write_with_memoryview() -> None:
         view[:] = bytes(range(16))
 
     assert buffer.to_bytes() == bytes(range(16))
+
+
+def test_write_buffer_promotes_cpu_buffer() -> None:
+    buffer = allocate_cpu_buffer(8)
+    assert buffer.backend_type == 'cpu'
+
+    with write_buffer(buffer) as view:
+        view[:] = b'py-data!'
+
+    assert buffer.backend_type == 'shared_buffer'
+    with read_buffer(buffer) as view:
+        assert view.tobytes() == b'py-data!'
 
 
 def test_numpy_view_is_zero_copy() -> None:

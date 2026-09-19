@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -59,13 +60,15 @@ inline SharedBufferImpl<T> * shared_buffer_impl_of(rosidl::Buffer<T> & buffer)
 
 }  // namespace detail
 
-/// \brief Acquire exclusive mutable access to a shared-memory-backed buffer payload.
+/// \brief Acquire exclusive mutable access to an output buffer payload.
 ///
-/// \details The input buffer must have a non-null implementation, contain at
-/// least one element, and already be shared-memory-backed. This function does not
-/// convert or replace buffers from another backend. Rejecting those buffers is
-/// intentional: a handle for a newly allocated, detached shared-memory buffer would
-/// not be reflected by the original buffer during message publication.
+/// \details The input buffer must have a non-null implementation and contain at
+/// least one element. If it is not already shared-memory-backed, a fresh
+/// shared-memory-backed \c rosidl::Buffer<std::uint8_t> is allocated and attached
+/// to the returned handle as its promoted buffer. The caller must replace the
+/// message field with \c WriteHandle::get_promoted_buffer() before publishing.
+/// Promotion of non-shared buffers is supported only for \c uint8_t buffers;
+/// other element types must already use the shared-memory backend.
 template<typename T>
 WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
 {
@@ -78,10 +81,24 @@ WriteHandle from_output_buffer(rosidl::Buffer<T> & buffer)
   }
 
   auto * shared_buffer_impl = dynamic_cast<SharedBufferImpl<T> *>(impl);
-  if (shared_buffer_impl == nullptr) {
-    throw SharedBufferError("from_output_buffer requires a shared-memory-backed buffer");
+  if (shared_buffer_impl != nullptr) {
+    return shared_buffer_impl->get_shared_buffer().get_write_handle();
   }
-  return shared_buffer_impl->get_shared_buffer().get_write_handle();
+
+  if constexpr (!std::is_same_v<T, std::uint8_t>) {
+    throw SharedBufferError(
+            "from_output_buffer can only promote non-shared buffers with uint8_t elements");
+  }
+
+  if (buffer.size() > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+    throw SharedBufferError("output buffer size overflows size_t");
+  }
+  const std::size_t bytes = buffer.size() * sizeof(T);
+  auto promoted = detail::allocate_shared_buffer_shared(bytes);
+  auto * promoted_impl = detail::shared_buffer_impl_of(*promoted);
+  auto write = promoted_impl->get_shared_buffer().get_write_handle();
+  write.set_promoted_buffer(std::move(promoted));
+  return write;
 }
 
 /// \brief Acquire read-only access to a buffer payload.
