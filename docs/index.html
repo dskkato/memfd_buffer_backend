@@ -327,13 +327,11 @@ message.data = buffer</code></pre>
         <div class="tab-panel" id="rust-panel" role="tabpanel" aria-labelledby="rust-tab" hidden>
           <div class="code-column">
             <div class="code-title"><span>Write</span><button type="button" class="copy-button dark" data-copy-target="rust-write">Copy</button></div>
-            <pre id="rust-write"><code><span class="token-keyword">use</span> shared_buffer_rust::Buffer;
+            <pre id="rust-write"><code><span class="token-keyword">use</span> shared_buffer_rust::UninitializedBuffer;
 
-<span class="token-keyword">let mut</span> buffer = Buffer::new(byte_count)?;
-{
-  <span class="token-keyword">let mut</span> write = buffer.write()?;
-  write.copy_from_slice(pixels);
-} <span class="token-comment">// write lease を finalize</span></code></pre>
+<span class="token-keyword">let</span> buffer = UninitializedBuffer::new(byte_count)?
+  .write()?
+  .write_from_slice(pixels)?;</code></pre>
           </div>
           <div class="code-column">
             <div class="code-title"><span>Read</span><button type="button" class="copy-button dark" data-copy-target="rust-read">Copy</button></div>
