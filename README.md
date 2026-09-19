@@ -1,6 +1,6 @@
 # memfd_buffer_backend
 
-`memfd_buffer_backend` is a `rosidl::Buffer` backend that shares memory between
+`shared_buffer_backend` is a `rosidl::Buffer` backend that shares memory between
 compatible ROS 2 endpoints on Linux and Windows. Linux uses anonymous memfd
 allocations; Windows uses session-local named file mappings.
 
@@ -13,22 +13,22 @@ implementation.
 
 ## Packages
 
-- `memfd_buffer`: shared-memory allocation, pooling, handles, Linux FD
+- `shared_buffer`: shared-memory allocation, pooling, handles, Linux FD
   brokering, and Windows named-mapping import.
-- `memfd_buffer_backend_py`: Python zero-copy bindings for the memfd backend
-  (installs the `memfd_buffer` Python module).
-- `memfd_buffer_backend`: rosidl buffer backend plugin.
-- `memfd_buffer_backend_msgs`: descriptor message used for inter-process import.
+- `shared_buffer_backend_py`: Python zero-copy bindings for the shared-memory backend
+  (installs the `shared_buffer` Python module).
+- `shared_buffer_backend`: rosidl buffer backend plugin.
+- `shared_buffer_backend_msgs`: descriptor message used for inter-process import.
 
 ## Python zero-copy access
 
-The `memfd_buffer_backend_py` package exposes scoped Python buffer-protocol
-access through the `memfd_buffer` Python module. NumPy is optional and consumes
+The `shared_buffer_backend_py` package exposes scoped Python buffer-protocol
+access through the `shared_buffer` Python module. NumPy is optional and consumes
 the standard `memoryview` without copying:
 
 ```python
 import numpy as np
-from memfd_buffer import allocate_buffer, read_buffer, write_buffer
+from shared_buffer import allocate_buffer, read_buffer, write_buffer
 
 buffer = allocate_buffer(1024)
 with write_buffer(buffer) as view:
