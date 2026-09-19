@@ -20,4 +20,4 @@ int32 shared_buffer_pid                # Publisher process ID
 uint32 shared_buffer_block_id          # Block ID in the publisher's pool
 uint64 shared_buffer_block_size        # Block size (for import mapping)
 string shared_buffer_socket_path       # Linux FD broker path or Windows named mapping object name
-uint64 ipc_uid                 # Unique ID per publish for staleness detection
+uint64 ipc_uid                 # Unique ID per allocation/reuse generation for staleness detection

@@ -52,6 +52,44 @@ def generate_test_description():
         output='screen',
     )
 
+    relay_container = ComposableNodeContainer(
+        name='shared_buffer_image_dso_relay_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container',
+        composable_node_descriptions=[
+            ComposableNode(
+                package='shared_buffer_backend',
+                plugin='SharedImageRelay',
+                name='shared_buffer_image_relay',
+                parameters=[{
+                    'input_topic': 'test_shared_buffer_image_dso',
+                    'output_topic': 'test_shared_buffer_image_dso_relay',
+                }],
+            ),
+        ],
+        output='screen',
+    )
+
+    relay_subscriber_container = ComposableNodeContainer(
+        name='shared_buffer_image_dso_relay_subscriber_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container',
+        composable_node_descriptions=[
+            ComposableNode(
+                package='shared_buffer_backend',
+                plugin='SharedImageSubscriber',
+                name='shared_buffer_image_relay_subscriber',
+                parameters=[{
+                    'input_topic': 'test_shared_buffer_image_dso_relay',
+                    'result_prefix': 'shared_buffer_relay_dso',
+                }],
+            ),
+        ],
+        output='screen',
+    )
+
     publisher_container = ComposableNodeContainer(
         name='shared_buffer_image_dso_publisher_container',
         namespace='',
@@ -72,6 +110,8 @@ def generate_test_description():
         SetEnvironmentVariable('ROS_DOMAIN_ID', test_domain_id),
         EnableRmwIsolation(),
         subscriber_container,
+        relay_container,
+        relay_subscriber_container,
         TimerAction(period=1.0, actions=[publisher_container]),
         launch_testing.actions.ReadyToTest(),
     ])
@@ -91,6 +131,7 @@ class TestSharedBufferPoolDsoFastRTPS(unittest.TestCase):
     def setUp(self):
         self.node = rclpy.create_node('test_shared_buffer_pool_dso_fastrtps')
         self.received_count = 0
+        self.relay_received_count = 0
         self.validation_count = 0
         self.backend_count = 0
         self.content_count = 0
@@ -107,12 +148,25 @@ class TestSharedBufferPoolDsoFastRTPS(unittest.TestCase):
             Bool, 'shared_buffer_dso_content_validation', self._content_cb, 10)
         self.node.create_subscription(
             Bool, 'shared_buffer_dso_metadata_validation', self._metadata_cb, 10)
+        self.node.create_subscription(
+            UInt32, 'shared_buffer_relay_dso_subscriber_count', self._relay_count_cb, 10)
+        self.node.create_subscription(
+            Bool, 'shared_buffer_relay_dso_validation', self._validation_cb, 10)
+        self.node.create_subscription(
+            Bool, 'shared_buffer_relay_dso_backend_validation', self._backend_cb, 10)
+        self.node.create_subscription(
+            Bool, 'shared_buffer_relay_dso_content_validation', self._content_cb, 10)
+        self.node.create_subscription(
+            Bool, 'shared_buffer_relay_dso_metadata_validation', self._metadata_cb, 10)
 
     def tearDown(self):
         self.node.destroy_node()
 
     def _count_cb(self, msg):
         self.received_count = msg.data
+
+    def _relay_count_cb(self, msg):
+        self.relay_received_count = msg.data
 
     def _validation_cb(self, msg):
         self.validation_count += 1
@@ -133,10 +187,11 @@ class TestSharedBufferPoolDsoFastRTPS(unittest.TestCase):
     def _complete(self):
         return (
             self.received_count >= 5 and
-            self.validation_count >= 5 and
-            self.backend_count >= 5 and
-            self.content_count >= 5 and
-            self.metadata_count >= 5
+            self.relay_received_count >= 5 and
+            self.validation_count >= 10 and
+            self.backend_count >= 10 and
+            self.content_count >= 10 and
+            self.metadata_count >= 10
         )
 
     def test_five_shared_buffer_messages_validate(self):
@@ -148,7 +203,8 @@ class TestSharedBufferPoolDsoFastRTPS(unittest.TestCase):
         self.assertTrue(
             self._complete(),
             'Did not observe five complete validations: '
-            f'received={self.received_count}, validation={self.validation_count}, '
+            f'received={self.received_count}, relay_received={self.relay_received_count}, '
+            f'validation={self.validation_count}, '
             f'backend={self.backend_count}, content={self.content_count}, '
             f'metadata={self.metadata_count}',
         )

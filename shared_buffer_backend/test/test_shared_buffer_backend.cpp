@@ -112,6 +112,67 @@ TEST(SharedBufferBackendTest, DescriptorRoundTripUsesPlatformIpcAndMappingCache)
     backend.from_descriptor_with_endpoint(&stale_descriptor, info), std::runtime_error);
 }
 
+TEST(SharedBufferBackendTest, ImportedBufferCanBeForwardedWithoutCpuCopy)
+{
+  shared_buffer::SharedBufferBackend backend;
+  const auto info = endpoint();
+  std::unordered_map<std::string, std::string> supported;
+  supported["shared_buffer"] = backend.get_backend_metadata();
+  ASSERT_TRUE(backend.on_discovering_endpoint(info, {}, supported).first);
+
+  auto source = shared_buffer::allocate_buffer(32);
+  {
+    auto write = shared_buffer::from_output_buffer(source);
+    for (std::size_t i = 0; i < source.size(); ++i) {
+      write.get_ptr()[i] = static_cast<std::uint8_t>(0xC0u + i);
+    }
+  }
+
+  auto source_descriptor = backend.create_descriptor_with_endpoint(source.get_impl(), info);
+  ASSERT_NE(nullptr, source_descriptor);
+  const auto * source_typed =
+    static_cast<const shared_buffer_backend_msgs::msg::SharedBufferDescriptor *>(
+    source_descriptor.get());
+
+  auto imported = backend.from_descriptor_with_endpoint(source_descriptor.get(), info);
+  auto * imported_impl = dynamic_cast<shared_buffer::SharedBufferImpl<std::uint8_t> *>(
+    static_cast<rosidl::BufferImplBase<std::uint8_t> *>(imported.get()));
+  ASSERT_NE(nullptr, imported_impl);
+  auto * control = imported_impl->get_shared_buffer().control();
+  ASSERT_NE(nullptr, control);
+  EXPECT_EQ(1u, control->reader_state.load(std::memory_order_acquire));
+
+  auto forwarded = backend.create_descriptor_with_endpoint(imported_impl, info);
+  ASSERT_NE(nullptr, forwarded);
+  const auto * forwarded_typed =
+    static_cast<const shared_buffer_backend_msgs::msg::SharedBufferDescriptor *>(
+    forwarded.get());
+  EXPECT_EQ(source_typed->shared_buffer_pid, forwarded_typed->shared_buffer_pid);
+  EXPECT_EQ(source_typed->shared_buffer_block_id, forwarded_typed->shared_buffer_block_id);
+  EXPECT_EQ(source_typed->shared_buffer_block_size, forwarded_typed->shared_buffer_block_size);
+  EXPECT_EQ(source_typed->shared_buffer_socket_path, forwarded_typed->shared_buffer_socket_path);
+  EXPECT_EQ(source_typed->ipc_uid, forwarded_typed->ipc_uid);
+
+  // A second import models the downstream subscriber of the forwarding node.
+  // The first imported buffer is still alive, so the upstream generation
+  // cannot be claimed for reuse while the forwarded descriptor is consumed.
+  auto downstream = backend.from_descriptor_with_endpoint(forwarded.get(), info);
+  auto * downstream_impl =
+    dynamic_cast<shared_buffer::SharedBufferImpl<std::uint8_t> *>(
+    static_cast<rosidl::BufferImplBase<std::uint8_t> *>(downstream.get()));
+  ASSERT_NE(nullptr, downstream_impl);
+  EXPECT_EQ(2u, control->reader_state.load(std::memory_order_acquire));
+  auto copy = downstream_impl->to_cpu();
+  auto * cpu = dynamic_cast<rosidl::CpuBufferImpl<std::uint8_t> *>(copy.get());
+  ASSERT_NE(nullptr, cpu);
+  ASSERT_EQ(32u, cpu->get_storage().size());
+  EXPECT_EQ(0xC0u, cpu->get_storage().front());
+  EXPECT_EQ(0xDFu, cpu->get_storage().back());
+
+  downstream.reset();
+  EXPECT_EQ(1u, control->reader_state.load(std::memory_order_acquire));
+}
+
 TEST(SharedBufferBackendTest, IncompatiblePeerFallsBack)
 {
   shared_buffer::SharedBufferBackend backend;

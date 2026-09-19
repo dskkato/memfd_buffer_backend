@@ -33,25 +33,30 @@ public:
   explicit SharedImageSubscriber(const rclcpp::NodeOptions & options)
   : Node("shared_image_subscriber", options)
   {
+    const auto input_topic = declare_parameter<std::string>(
+      "input_topic", "test_shared_buffer_image_dso");
+    const auto result_prefix = declare_parameter<std::string>(
+      "result_prefix", "shared_buffer_dso");
+
     rclcpp::SubscriptionOptions subscription_options;
     // Reject CPU fallback at endpoint matching time.  The test must fail if
     // descriptor creation in the publisher process did not find its block.
     subscription_options.acceptable_buffer_backends = "shared_buffer";
     subscription_ = create_subscription<sensor_msgs::msg::Image>(
-      "test_shared_buffer_image_dso", 10,
+      input_topic, 10,
       std::bind(&SharedImageSubscriber::image_callback, this, std::placeholders::_1),
       subscription_options);
 
-    count_publisher_ = create_publisher<std_msgs::msg::UInt32>("shared_buffer_dso_subscriber_count",
-      10);
-    validation_publisher_ = create_publisher<std_msgs::msg::Bool>("shared_buffer_dso_validation",
-      10);
+    count_publisher_ = create_publisher<std_msgs::msg::UInt32>(
+      result_prefix + "_subscriber_count", 10);
+    validation_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      result_prefix + "_validation", 10);
     backend_publisher_ =
-      create_publisher<std_msgs::msg::Bool>("shared_buffer_dso_backend_validation", 10);
+      create_publisher<std_msgs::msg::Bool>(result_prefix + "_backend_validation", 10);
     content_publisher_ =
-      create_publisher<std_msgs::msg::Bool>("shared_buffer_dso_content_validation", 10);
+      create_publisher<std_msgs::msg::Bool>(result_prefix + "_content_validation", 10);
     metadata_publisher_ = create_publisher<std_msgs::msg::Bool>(
-      "shared_buffer_dso_metadata_validation", 10);
+      result_prefix + "_metadata_validation", 10);
   }
 
 private:

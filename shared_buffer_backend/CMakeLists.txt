@@ -102,6 +102,20 @@ if(BUILD_TESTING)
   rclcpp_components_register_nodes(shared_image_subscriber_component
     "SharedImageSubscriber")
 
+  ament_auto_add_library(shared_image_relay_component SHARED
+    NO_TARGET_LINK_LIBRARIES
+    test/src/shared_image_relay_node.cpp
+  )
+  target_link_libraries(shared_image_relay_component
+    shared_buffer::shared_buffer
+    rclcpp::rclcpp
+    rclcpp_components::component
+    ${sensor_msgs_TARGETS}
+    rosidl_runtime_cpp::rosidl_runtime_cpp
+  )
+  rclcpp_components_register_nodes(shared_image_relay_component
+    "SharedImageRelay")
+
   add_launch_test(test/test_shared_buffer_pool_dso_fastrtps_launch.py
     TARGET test_shared_buffer_pool_dso_fastrtps_launch
     TIMEOUT 45

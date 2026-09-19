@@ -111,6 +111,36 @@ std::shared_ptr<void> SharedBufferBackend::create_descriptor_with_endpoint(
     const auto pool = get_global_shared_buffer_pool();
     auto & shared_buffer = shared_buffer_impl->get_shared_buffer();
     shared_buffer.finalize_write_handle();
+
+    // An imported buffer is a read-only view of a block owned by an upstream
+    // process. It is not present in this process's publisher pool, so looking
+    // it up with find_block_for_ptr() would force an unnecessary CPU fallback.
+    // Reuse the original descriptor identity instead. The imported buffer's
+    // reader reference keeps the generation alive while this node handles the
+    // message, and the UID check prevents forwarding a stale generation.
+    if (shared_buffer.has_ipc_descriptor()) {
+      auto * control = shared_buffer.control();
+      if (
+        control == nullptr || control->magic != kSharedBufferControlMagic ||
+        control->abi_version != kSharedBufferControlAbiVersion ||
+        control->payload_size != shared_buffer.size() ||
+        control->ipc_uid.load(std::memory_order_acquire) != shared_buffer.ipc_uid())
+      {
+        return nullptr;
+      }
+
+      auto descriptor =
+        std::make_shared<shared_buffer_backend_msgs::msg::SharedBufferDescriptor>();
+      descriptor->size = shared_buffer.size();
+      descriptor->element_type_name = typeid(std::uint8_t).name();
+      descriptor->shared_buffer_pid = shared_buffer.ipc_pid();
+      descriptor->shared_buffer_block_id = shared_buffer.block_id();
+      descriptor->shared_buffer_block_size = shared_buffer.mapped_size();
+      descriptor->shared_buffer_socket_path = shared_buffer.ipc_name();
+      descriptor->ipc_uid = shared_buffer.ipc_uid();
+      return descriptor;
+    }
+
     SharedBufferBlock * block = pool->find_block_for_ptr(shared_buffer.get_ptr());
     if (block == nullptr || block->control == nullptr) {
       return nullptr;
@@ -174,7 +204,8 @@ std::unique_ptr<void, void (*)(void *)> SharedBufferBackend::from_descriptor_wit
   auto reader_release = [imported](std::uint8_t *) {imported->release_reader();};
   SharedBuffer buffer(
     imported->payload(), descriptor.size, std::move(reader_release), imported->control(), imported,
-    descriptor.shared_buffer_block_id, descriptor.shared_buffer_block_size, false);
+    descriptor.shared_buffer_block_id, descriptor.shared_buffer_block_size, false,
+    descriptor.shared_buffer_pid, descriptor.shared_buffer_socket_path, descriptor.ipc_uid);
   auto result = std::make_unique<SharedBufferImpl<std::uint8_t>>(
     std::move(buffer), static_cast<std::size_t>(descriptor.size));
   return {result.release(), [](void * ptr) {
