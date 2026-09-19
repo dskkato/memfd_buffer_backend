@@ -141,7 +141,15 @@ void SharedBufferMemoryPool::mark_published(SharedBufferBlock * block)
     return;
   }
   block->control->ipc_uid.store(block->current_uid, std::memory_order_release);
-  block->control->publish_timestamp_us.store(monotonic_time_us(), std::memory_order_release);
+  refresh_publish_timestamp(block->control);
+}
+
+void SharedBufferMemoryPool::refresh_publish_timestamp(SharedBufferControlHeader * control)
+{
+  if (control == nullptr) {
+    return;
+  }
+  control->publish_timestamp_us.store(monotonic_time_us(), std::memory_order_release);
 }
 
 std::string SharedBufferMemoryPool::register_block_for_ipc(SharedBufferBlock * block)

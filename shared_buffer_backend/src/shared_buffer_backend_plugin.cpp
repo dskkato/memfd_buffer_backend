@@ -129,6 +129,10 @@ std::shared_ptr<void> SharedBufferBackend::create_descriptor_with_endpoint(
         return nullptr;
       }
 
+      // Re-publishing an imported buffer extends the source block's reuse
+      // grace period, but must not create a new generation or alter its UID.
+      pool->refresh_publish_timestamp(control);
+
       auto descriptor =
         std::make_shared<shared_buffer_backend_msgs::msg::SharedBufferDescriptor>();
       descriptor->size = shared_buffer.size();

@@ -14,9 +14,11 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <thread>
 #include <unordered_map>
 
 #include "shared_buffer/shared_buffer_api.hpp"
@@ -141,7 +143,11 @@ TEST(SharedBufferBackendTest, ImportedBufferCanBeForwardedWithoutCpuCopy)
   auto * control = imported_impl->get_shared_buffer().control();
   ASSERT_NE(nullptr, control);
   EXPECT_EQ(1u, control->reader_state.load(std::memory_order_acquire));
+  const auto published_before =
+    control->publish_timestamp_us.load(std::memory_order_acquire);
+  ASSERT_NE(0u, published_before);
 
+  std::this_thread::sleep_for(std::chrono::milliseconds(1));
   auto forwarded = backend.create_descriptor_with_endpoint(imported_impl, info);
   ASSERT_NE(nullptr, forwarded);
   const auto * forwarded_typed =
@@ -152,6 +158,8 @@ TEST(SharedBufferBackendTest, ImportedBufferCanBeForwardedWithoutCpuCopy)
   EXPECT_EQ(source_typed->shared_buffer_block_size, forwarded_typed->shared_buffer_block_size);
   EXPECT_EQ(source_typed->shared_buffer_socket_path, forwarded_typed->shared_buffer_socket_path);
   EXPECT_EQ(source_typed->ipc_uid, forwarded_typed->ipc_uid);
+  EXPECT_GT(
+    control->publish_timestamp_us.load(std::memory_order_acquire), published_before);
 
   // A second import models the downstream subscriber of the forwarding node.
   // The first imported buffer is still alive, so the upstream generation
