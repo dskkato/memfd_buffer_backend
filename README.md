@@ -1,4 +1,4 @@
-# memfd_buffer_backend
+# shared_buffer_backend
 
 `shared_buffer_backend` is a `rosidl::Buffer` backend that shares memory between
 compatible ROS 2 endpoints on Linux and Windows. Linux uses anonymous memfd
