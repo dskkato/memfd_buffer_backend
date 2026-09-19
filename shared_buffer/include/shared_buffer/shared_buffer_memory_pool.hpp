@@ -171,6 +171,9 @@ public:
   /// Record that a descriptor for the current generation was created.
   void mark_published(SharedBufferBlock * block);
 
+  /// Refresh the reuse grace period without changing the published generation.
+  void refresh_publish_timestamp(SharedBufferControlHeader * control);
+
   /// Register the block's backing object with the platform IPC broker.
   std::string register_block_for_ipc(SharedBufferBlock * block);
 

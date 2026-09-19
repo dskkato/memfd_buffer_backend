@@ -135,7 +135,8 @@ void WriteHandle::release() noexcept
 SharedBuffer::SharedBuffer(
   void * payload, std::size_t size, std::function<void(std::uint8_t *)> deleter,
   SharedBufferControlHeader * control, std::shared_ptr<void> owner, std::uint32_t block_id,
-  std::uint64_t mapped_size, bool writable)
+  std::uint64_t mapped_size, bool writable, std::int32_t ipc_pid, std::string ipc_name,
+  std::uint64_t ipc_uid)
 : data_ptr_(static_cast<std::uint8_t *>(payload)),
   size_(size),
   deleter_(std::move(deleter)),
@@ -143,7 +144,10 @@ SharedBuffer::SharedBuffer(
   owner_(std::move(owner)),
   block_id_(block_id),
   mapped_size_(mapped_size),
-  writable_(writable)
+  writable_(writable),
+  ipc_pid_(ipc_pid),
+  ipc_name_(std::move(ipc_name)),
+  ipc_uid_(ipc_uid)
 {
   if (data_ptr_ == nullptr && size_ != 0) {
     throw std::invalid_argument("SharedBuffer payload must not be null");
@@ -165,7 +169,10 @@ SharedBuffer::SharedBuffer(SharedBuffer && other) noexcept
   handle_state_(std::move(other.handle_state_)),
   block_id_(other.block_id_),
   mapped_size_(other.mapped_size_),
-  writable_(other.writable_)
+  writable_(other.writable_),
+  ipc_pid_(other.ipc_pid_),
+  ipc_name_(std::move(other.ipc_name_)),
+  ipc_uid_(other.ipc_uid_)
 {
   other.data_ptr_ = nullptr;
   other.size_ = 0;
@@ -173,6 +180,8 @@ SharedBuffer::SharedBuffer(SharedBuffer && other) noexcept
   other.block_id_ = 0;
   other.mapped_size_ = 0;
   other.writable_ = true;
+  other.ipc_pid_ = 0;
+  other.ipc_uid_ = 0;
 }
 
 SharedBuffer & SharedBuffer::operator=(SharedBuffer && other) noexcept
@@ -189,12 +198,17 @@ SharedBuffer & SharedBuffer::operator=(SharedBuffer && other) noexcept
     block_id_ = other.block_id_;
     mapped_size_ = other.mapped_size_;
     writable_ = other.writable_;
+    ipc_pid_ = other.ipc_pid_;
+    ipc_name_ = std::move(other.ipc_name_);
+    ipc_uid_ = other.ipc_uid_;
     other.data_ptr_ = nullptr;
     other.size_ = 0;
     other.control_ = nullptr;
     other.block_id_ = 0;
     other.mapped_size_ = 0;
     other.writable_ = true;
+    other.ipc_pid_ = 0;
+    other.ipc_uid_ = 0;
   }
   return *this;
 }
@@ -287,6 +301,9 @@ void SharedBuffer::reset() noexcept
   block_id_ = 0;
   mapped_size_ = 0;
   writable_ = true;
+  ipc_pid_ = 0;
+  ipc_name_.clear();
+  ipc_uid_ = 0;
   deleter_ = {};
 }
 

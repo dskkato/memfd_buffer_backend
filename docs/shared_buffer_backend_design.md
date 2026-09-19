@@ -107,6 +107,48 @@ memfd. Later publications from the same pool block reuse the cached mapping.
 The descriptor's `ipc_uid` is checked on every publication, so cache reuse does
 not weaken stale-message detection.
 
+## Forwarding an imported buffer
+
+A relay can subscribe to a shared-buffer-backed message, construct another
+message instance, and publish it without copying its payload. The relay's
+buffer is an imported view, not a block in the relay process's
+`SharedBufferMemoryPool`:
+
+```mermaid
+sequenceDiagram
+  participant Source as Source publisher
+  participant Relay as Relay subscriber/publisher
+  participant Sink as Downstream subscriber
+
+  Source->>Relay: descriptor for (pid, block, ipc_name, uid)
+  Relay->>Relay: import and acquire reader reference
+  Relay->>Sink: same descriptor identity
+  Sink->>Sink: import and acquire another reader reference
+  Relay->>Relay: release reader reference after callback
+  Sink->>Sink: release reader reference after use
+```
+
+On the relay path, `create_descriptor_with_endpoint()` validates the imported
+mapping's control header and UID, then forwards the saved source identity. It
+does not call `register_block_for_ipc()` and it does not call
+`mark_published()`, because the relay does not own the source block. The
+reader reference held by the imported `SharedBuffer` prevents the source pool
+from claiming that block for reuse while the relay is using the message. A
+downstream import acquires its own reader reference, so multiple fan-out or
+relay consumers are compatible with the slot lifecycle.
+
+This preserves safety but not guaranteed delivery for an arbitrarily delayed
+relay chain. If the source block is returned to its pool before a forwarded
+descriptor is imported, the source pool may reuse it after the grace period;
+the forwarded UID then fails validation and the descriptor is rejected rather
+than exposing a reused payload. Applications that require reliable forwarding
+must retain the source message or use a transport-level acknowledgement until
+the downstream import has completed. The component sample `SharedImageRelay`
+demonstrates the normal callback-scoped case. It receives an `Image::UniquePtr`,
+creates a new `Image`, copies the scalar/header fields, and move-assigns `data`;
+copying the buffer field instead would clone the payload and lose the zero-copy
+path.
+
 ## IPC capability decision
 
 The backend advertises platform locality metadata. Linux uses
@@ -143,12 +185,13 @@ mapping. The descriptor does not contain a native FD or handle.
 | `shared_buffer_block_id` | Stable block ID within the publisher process and pool lifetime. |
 | `shared_buffer_block_size` | Total mapped region size, including the control header and payload. |
 | `shared_buffer_socket_path` | Linux Unix-domain FD broker path, or Windows named file-mapping object name. |
-| `ipc_uid` | Non-zero publication UID used to reject a descriptor for an older reuse generation. |
+| `ipc_uid` | Non-zero allocation/reuse-generation UID used to reject a descriptor for an older generation. |
 
 The cache key must identify the physical imported block, not an individual
 publication. It therefore includes the publisher process identity, stable
 block ID, and platform IPC name/path, but not `ipc_uid`. The UID remains a
-per-publication validation value.
+per-generation validation value. Re-publishing an immutable buffer, including
+forwarding it through a relay, intentionally reuses the same UID.
 
 The descriptor is published only after the publisher has finalized its write
 and release-stored the current UID in the control header. The subscriber
