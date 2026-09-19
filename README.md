@@ -26,9 +26,9 @@ implementation.
 
 ## Python zero-copy access
 
-The `shared_buffer_backend_py` package exposes scoped Python buffer-protocol
-access through the `shared_buffer` Python module. NumPy is optional and consumes
-the standard `memoryview` without copying:
+The `shared_buffer_backend_py` package exposes Python buffer-protocol access
+through the `shared_buffer` Python module. NumPy is optional and consumes the
+standard `memoryview` without copying:
 
 ```python
 import numpy as np
@@ -44,15 +44,15 @@ message.data = buffer
 ```
 
 ```python
-with read_buffer(received_message.data) as view:
-    array = np.frombuffer(view, dtype=np.uint8)
-    process(array)
-    del array  # Derived views must be released before leaving the scope.
+view = read_buffer(received_message.data)
+array = np.frombuffer(view, dtype=np.uint8)
+process(array)
 ```
 
-Read views are read-only. Write views are exclusive and are finalized when the
-scope closes. A derived view must not escape the scope; closing raises
-`BufferError` while an exported NumPy or memoryview object remains alive.
+Read views are read-only. Their read lease is retained by derived buffer objects
+and released automatically when the last view is destroyed. Write views are
+exclusive and are finalized when the scope closes; a derived write view must not
+escape the scope, and closing raises `BufferError` while one remains alive.
 
 ## Benchmark
 

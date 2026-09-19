@@ -113,33 +113,7 @@ public:
 
   py::buffer_info buffer_info()
   {
-    if (closed_) {
-      throw py::buffer_error("read access is closed");
-    }
     return py::buffer_info(handle_.get_ptr(), static_cast<Py_ssize_t>(byte_count_), true);
-  }
-
-  void close()
-  {
-    if (exports_ != 0) {
-      throw py::buffer_error("cannot close read access while exported views are alive");
-    }
-    if (!closed_) {
-      handle_ = ReadHandle();
-      owner_ = py::none();
-      buffer_ = nullptr;
-      closed_ = true;
-    }
-  }
-
-  bool closed() const {return closed_;}
-  std::size_t byte_count() const {return byte_count_;}
-  void add_export() {++exports_;}
-  void remove_export() noexcept
-  {
-    if (exports_ != 0) {
-      --exports_;
-    }
   }
 
 private:
@@ -147,8 +121,6 @@ private:
   rosidl::Buffer<std::uint8_t> * buffer_{nullptr};
   ReadHandle handle_;
   std::size_t byte_count_{0};
-  std::size_t exports_{0};
-  bool closed_{false};
 };
 
 class NativeWriteAccess
@@ -208,9 +180,11 @@ private:
   bool closed_{false};
 };
 
-template<typename AccessT>
-struct BufferCallbacks
+struct WriteBufferCallbacks
 {
+  // Write access must be finalized at context-manager exit, so it still needs
+  // to reject outstanding exports. Read access instead follows the exporter's
+  // normal object lifetime and needs no manual export tracking.
   static getbufferproc original_getbuffer;
   static releasebufferproc original_releasebuffer;
 
@@ -219,7 +193,7 @@ struct BufferCallbacks
     const int result = original_getbuffer(object, view, flags);
     if (result == 0) {
       try {
-        py::cast<AccessT &>(py::handle(object)).add_export();
+        py::cast<NativeWriteAccess &>(py::handle(object)).add_export();
       } catch (...) {
         original_releasebuffer(object, view);
         PyErr_SetString(PyExc_BufferError, "failed to retain shared-buffer export");
@@ -232,7 +206,7 @@ struct BufferCallbacks
   static void releasebuffer(PyObject * object, Py_buffer * view)
   {
     try {
-      py::cast<AccessT &>(py::handle(object)).remove_export();
+      py::cast<NativeWriteAccess &>(py::handle(object)).remove_export();
     } catch (...) {
       PyErr_Clear();
     }
@@ -240,14 +214,10 @@ struct BufferCallbacks
   }
 };
 
-template<typename AccessT>
-getbufferproc BufferCallbacks<AccessT>::original_getbuffer = nullptr;
+getbufferproc WriteBufferCallbacks::original_getbuffer = nullptr;
+releasebufferproc WriteBufferCallbacks::original_releasebuffer = nullptr;
 
-template<typename AccessT>
-releasebufferproc BufferCallbacks<AccessT>::original_releasebuffer = nullptr;
-
-template<typename AccessT>
-void install_tracked_buffer_callbacks(const py::object & type_object)
+void install_tracked_write_buffer_callbacks(const py::object & type_object)
 {
   auto * type = reinterpret_cast<PyTypeObject *>(type_object.ptr());
   if (
@@ -256,10 +226,10 @@ void install_tracked_buffer_callbacks(const py::object & type_object)
   {
     throw std::runtime_error("pybind11 did not install buffer protocol callbacks");
   }
-  BufferCallbacks<AccessT>::original_getbuffer = type->tp_as_buffer->bf_getbuffer;
-  BufferCallbacks<AccessT>::original_releasebuffer = type->tp_as_buffer->bf_releasebuffer;
-  type->tp_as_buffer->bf_getbuffer = &BufferCallbacks<AccessT>::getbuffer;
-  type->tp_as_buffer->bf_releasebuffer = &BufferCallbacks<AccessT>::releasebuffer;
+  WriteBufferCallbacks::original_getbuffer = type->tp_as_buffer->bf_getbuffer;
+  WriteBufferCallbacks::original_releasebuffer = type->tp_as_buffer->bf_releasebuffer;
+  type->tp_as_buffer->bf_getbuffer = &WriteBufferCallbacks::getbuffer;
+  type->tp_as_buffer->bf_releasebuffer = &WriteBufferCallbacks::releasebuffer;
 }
 
 }  // namespace
@@ -270,14 +240,11 @@ PYBIND11_MODULE(_shared_buffer_py, module)
   using shared_buffer::NativeReadAccess;
   using shared_buffer::NativeWriteAccess;
 
-  module.doc() = "Scoped Python buffer-protocol access to shared-memory rosidl buffers";
+  module.doc() = "Python buffer-protocol access to shared-memory rosidl buffers";
 
   py::class_<NativeReadAccess> read_class(module, "_NativeReadAccess", py::buffer_protocol());
   read_class.def(py::init<py::object>())
-  .def_buffer(&NativeReadAccess::buffer_info)
-  .def("close", &NativeReadAccess::close)
-  .def_property_readonly("closed", &NativeReadAccess::closed)
-  .def_property_readonly("byte_count", &NativeReadAccess::byte_count);
+  .def_buffer(&NativeReadAccess::buffer_info);
 
   py::class_<NativeWriteAccess> write_class(module, "_NativeWriteAccess", py::buffer_protocol());
   write_class.def(py::init<py::object>())
@@ -286,8 +253,7 @@ PYBIND11_MODULE(_shared_buffer_py, module)
   .def_property_readonly("closed", &NativeWriteAccess::closed)
   .def_property_readonly("byte_count", &NativeWriteAccess::byte_count);
 
-  shared_buffer::install_tracked_buffer_callbacks<NativeReadAccess>(read_class);
-  shared_buffer::install_tracked_buffer_callbacks<NativeWriteAccess>(write_class);
+  shared_buffer::install_tracked_write_buffer_callbacks(write_class);
 
   module.def(
     "allocate_buffer", &shared_buffer::allocate_buffer_internal, py::arg("byte_count"));
