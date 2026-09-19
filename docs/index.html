@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="shared_buffer_backend — ROS 2 Lyrical の rosidl::Buffer を Linux / Windows の共有メモリに置くバックエンド">
+  <meta name="theme-color" content="#071a23">
+  <title>shared_buffer_backend | ROS 2 shared memory for rosidl::Buffer</title>
+  <script>document.documentElement.classList.add('js')</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="shared_buffer_backend トップ">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>shared_buffer_backend</span>
+    </a>
+    <nav aria-label="ページ内ナビゲーション">
+      <a href="#concept">仕組み</a>
+      <a href="#start">導入</a>
+      <a href="#usage">使い方</a>
+      <a href="#support">対応範囲</a>
+    </nav>
+    <a class="github-link" href="https://github.com/dskkato/memfd_buffer_backend">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy reveal">
+        <p class="eyebrow">ROS 2 Lyrical · rosidl::Buffer backend</p>
+        <h1>大きなデータは動かさない。<br><span>参照だけを届ける。</span></h1>
+        <p class="lede">
+          <code>shared_buffer_backend</code> は、画像などの buffer payload を同一ホスト上の
+          共有メモリに置き、ROS 2 のメッセージでは buffer payload の代わりに小さな descriptor を配送します。
+          C++ と Python から、同じ仕組みを利用できます。
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#start">使い始める</a>
+          <a class="button secondary" href="#concept">データの流れを見る</a>
+        </div>
+        <ul class="feature-pills" aria-label="主な対応範囲">
+          <li>Linux</li>
+          <li>Windows</li>
+          <li>C++17</li>
+          <li>Python</li>
+        </ul>
+      </div>
+
+      <div class="hero-visual reveal" aria-label="payload を共有する模式図">
+        <div class="visual-glow"></div>
+        <div class="mini-node publisher-mini">
+          <span class="node-dot"></span>
+          <small>Publisher</small>
+          <strong>write()</strong>
+        </div>
+        <div class="mini-node subscriber-mini">
+          <span class="node-dot"></span>
+          <small>Subscriber</small>
+          <strong>read()</strong>
+        </div>
+        <div class="memory-card">
+          <div class="memory-card-head">
+            <span>SHARED ALLOCATION</span>
+            <span class="live"><i></i> mapped</span>
+          </div>
+          <div class="memory-grid" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="memory-caption"><strong>8.3 MB</strong><span>payload stays here</span></div>
+        </div>
+        <div class="descriptor-chip"><span>descriptor</span><b>metadata</b></div>
+        <div class="mini-route route-left"></div>
+        <div class="mini-route route-right"></div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-label="概要">
+      <div><strong>1 allocation</strong><span>同じ物理 block を map</span></div>
+      <div><strong>descriptor only</strong><span>buffer field の payload を DDS 経路に載せない</span></div>
+      <div><strong>safe fallback</strong><span>条件が合わなければ CPU path</span></div>
+    </section>
+
+    <section class="section concept" id="concept">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Concept</p>
+        <h2>メモリはどこにある？</h2>
+        <p>
+          通常の DDS message 用 allocation と、大きな payload 用の shared allocation は別物です。
+          Publisher と Subscriber は payload をコピーし合わず、OS が管理する同じ backing object を map します。
+        </p>
+      </div>
+
+      <div class="flow-demo reveal" data-flow-demo>
+        <div class="flow-toolbar">
+          <div class="flow-legend">
+            <span><i class="legend-payload"></i>共有 payload</span>
+            <span><i class="legend-descriptor"></i>DDS で配送</span>
+          </div>
+          <button class="replay-button" type="button" data-replay>↻ もう一度見る</button>
+        </div>
+
+        <div class="flow-stage">
+          <div class="process-card process-publisher">
+            <div class="process-title"><span>01</span> Publisher process</div>
+            <div class="message-box">
+              <small>ROS message</small>
+              <div><span>header / width / encoding</span><b>通常の field</b></div>
+              <div class="buffer-ref"><span>data</span><b>Buffer →</b></div>
+            </div>
+          </div>
+
+          <div class="transport-card">
+            <div class="transport-title">RMW / DDS</div>
+            <div class="wire"></div>
+            <div class="packet packet-static">
+              <small>message</small>
+              <span>fields + descriptor</span>
+            </div>
+            <div class="packet packet-moving" aria-hidden="true">
+              <small>message</small>
+              <span>fields + descriptor</span>
+            </div>
+            <div class="no-payload">payload は通らない</div>
+          </div>
+
+          <div class="process-card process-subscriber">
+            <div class="process-title"><span>03</span> Subscriber process</div>
+            <div class="message-box">
+              <small>received ROS message</small>
+              <div><span>header / width / encoding</span><b>復元</b></div>
+              <div class="buffer-ref"><span>data</span><b>Buffer ↓</b></div>
+            </div>
+          </div>
+
+          <div class="shared-zone">
+            <div class="shared-label"><span>02</span> OS-managed shared allocation <b>DDS message とは別 allocation</b></div>
+            <div class="os-badge linux">Linux <strong>memfd</strong></div>
+            <div class="memory-block">
+              <div class="control-block">64 B control</div>
+              <div class="payload-block">
+                <div class="payload-cells" aria-hidden="true"></div>
+                <strong>PAYLOAD</strong>
+                <span>image / point cloud / binary data</span>
+              </div>
+            </div>
+            <div class="os-badge windows">Windows <strong>file mapping</strong></div>
+          </div>
+
+          <svg class="flow-arrows" viewBox="0 0 1200 600" role="img" aria-label="Publisher と Subscriber が同じ共有メモリを参照する">
+            <defs>
+              <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#5ce1c4"/>
+              </marker>
+            </defs>
+            <path class="map-arrow arrow-from-pub" d="M 180 275 C 180 345, 320 350, 385 405" marker-end="url(#arrow-teal)"/>
+            <path class="map-arrow arrow-to-sub" d="M 815 405 C 880 350, 1020 345, 1020 275" marker-end="url(#arrow-teal)"/>
+          </svg>
+        </div>
+
+        <div class="flow-steps" aria-label="アニメーションの説明">
+          <article><span>1</span><div><strong>共有領域へ書く</strong><p><code>rosidl::Buffer</code> の payload は shared allocation に確保されます。</p></div></article>
+          <article><span>2</span><div><strong>descriptor を送る</strong><p>DDS message には PID、block ID、size、IPC 名、UID などの識別情報だけが入ります。</p></div></article>
+          <article><span>3</span><div><strong>同じ領域を map</strong><p>受信側は descriptor から backing object を import。同じ bytes を直接読みます。</p></div></article>
+        </div>
+      </div>
+
+      <div class="callout reveal">
+        <div class="callout-icon" aria-hidden="true">≠</div>
+        <div>
+          <strong>これは「DDS の shared-memory transport」とは別の層です。</strong>
+          <p><code>rosidl::Buffer</code> の storage backend として働きます。通常の ROS message の field と小さな descriptor は RMW/DDS が配送し、buffer payload は backend が管理する別 allocation に残ります。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section details-section" id="details">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Under the hood</p>
+        <h2>OS に合わせて、同じ体験を</h2>
+      </div>
+      <div class="platform-grid">
+        <article class="platform-card reveal">
+          <div class="platform-icon">Lx</div>
+          <p class="card-kicker">Linux</p>
+          <h3>anonymous memfd</h3>
+          <p>Publisher が匿名の memfd を作成し、Unix domain socket 経由の <code>SCM_RIGHTS</code> で FD を受信 process へ渡します。</p>
+          <ul>
+            <li>payload 自体に filesystem 上の名前は不要</li>
+            <li>最初の import 後は mapping cache を再利用</li>
+            <li>最後の FD / mapping が消えると kernel が回収</li>
+          </ul>
+        </article>
+        <article class="platform-card reveal">
+          <div class="platform-icon windows-icon">W</div>
+          <p class="card-kicker">Windows</p>
+          <h3>named file mapping</h3>
+          <p>Publisher が page-file-backed mapping を作成し、Subscriber は descriptor 内の session-local name から同じ object を開きます。</p>
+          <ul>
+            <li><code>Local\\</code> namespace で同一 session 内共有</li>
+            <li>random nonce で stale object との衝突を防止</li>
+            <li>最後の handle が閉じると OS が回収</li>
+          </ul>
+        </article>
+        <article class="platform-card lifecycle-card reveal">
+          <div class="platform-icon cycle-icon">↻</div>
+          <p class="card-kicker">Both platforms</p>
+          <h3>pool と世代チェック</h3>
+          <p>固定サイズの block を pool で再利用。publication ごとの <code>ipc_uid</code> と reader count で、古い descriptor や読み取り中の上書きを防ぎます。</p>
+          <ul>
+            <li>対応 endpoint は同一 host・同一 user</li>
+            <li>Windows は同一 login session も必要</li>
+            <li>条件不一致では通常の CPU buffer path</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section start-section" id="start">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Getting started</p>
+        <h2>ROS 2 Lyrical workspace に追加</h2>
+        <p>この backend は ROS 2 Lyrical で導入された <code>rosidl::Buffer</code> を対象とします。現時点では source build を想定しています。</p>
+      </div>
+
+      <div class="install-layout">
+        <ol class="requirements reveal">
+          <li><span>01</span><div><strong>ROS 2 Lyrical</strong><p><code>rosidl::Buffer</code> と backend API を含む環境。</p></div></li>
+          <li><span>02</span><div><strong>Linux または Windows</strong><p>同じ host・user の process 間で利用します。</p></div></li>
+          <li><span>03</span><div><strong>colcon / rosdep</strong><p>通常の ROS 2 source workspace として build。</p></div></li>
+        </ol>
+
+        <div class="terminal reveal">
+          <div class="terminal-head">
+            <div><i></i><i></i><i></i></div>
+            <span>Linux / bash</span>
+            <button type="button" class="copy-button" data-copy-target="install-code">Copy</button>
+          </div>
+          <pre id="install-code"><code>mkdir -p ~/ros2_lyrical_ws/src
+cd ~/ros2_lyrical_ws/src
+git clone -b lyrical \
+  https://github.com/dskkato/memfd_buffer_backend.git
+
+cd ~/ros2_lyrical_ws
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+source install/setup.bash</code></pre>
+          <p class="terminal-note">Windows では ROS 2 の Developer Command Prompt で build し、<code>call install\setup.bat</code> を実行します。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section usage-section" id="usage">
+      <div class="section-heading reveal">
+        <p class="eyebrow">API</p>
+        <h2>C++ と Python、同じ lifecycle</h2>
+        <p>allocate → scoped write → publish → scoped read。handle / context を閉じるまで pointer や view が有効です。</p>
+      </div>
+
+      <div class="code-tabs reveal" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="言語を選択">
+          <button role="tab" aria-selected="true" aria-controls="cpp-panel" id="cpp-tab">C++</button>
+          <button role="tab" aria-selected="false" aria-controls="python-panel" id="python-tab" tabindex="-1">Python</button>
+        </div>
+
+        <div class="tab-panel" id="cpp-panel" role="tabpanel" aria-labelledby="cpp-tab">
+          <div class="code-column">
+            <div class="code-title"><span>Publisher</span><button type="button" class="copy-button dark" data-copy-target="cpp-pub">Copy</button></div>
+            <pre id="cpp-pub"><code><span class="token-keyword">#include</span> <span class="token-string">"shared_buffer/shared_buffer_api.hpp"</span>
+
+sensor_msgs::msg::Image msg;
+msg.data = shared_buffer::allocate_buffer(byte_count);
+
+{
+  <span class="token-keyword">auto</span> write = shared_buffer::from_output_buffer(msg.data);
+  std::memcpy(write.get_ptr(), pixels, byte_count);
+} <span class="token-comment">// write を finalize</span>
+
+publisher-&gt;publish(msg);</code></pre>
+          </div>
+          <div class="code-column">
+            <div class="code-title"><span>Subscriber</span><button type="button" class="copy-button dark" data-copy-target="cpp-sub">Copy</button></div>
+            <pre id="cpp-sub"><code><span class="token-keyword">void</span> on_image(
+  sensor_msgs::msg::Image::ConstSharedPtr msg)
+{
+  <span class="token-keyword">auto</span> read =
+    shared_buffer::from_input_buffer(msg-&gt;data);
+
+  process_pixels(
+    read.get_ptr(),
+    msg-&gt;data.size());
+} <span class="token-comment">// read lease を解放</span></code></pre>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="python-panel" role="tabpanel" aria-labelledby="python-tab" hidden>
+          <div class="code-column">
+            <div class="code-title"><span>Write</span><button type="button" class="copy-button dark" data-copy-target="py-write">Copy</button></div>
+            <pre id="py-write"><code><span class="token-keyword">import</span> numpy <span class="token-keyword">as</span> np
+<span class="token-keyword">from</span> shared_buffer <span class="token-keyword">import</span> allocate_buffer, write_buffer
+
+buffer = allocate_buffer(1920 * 1080)
+<span class="token-keyword">with</span> write_buffer(buffer) <span class="token-keyword">as</span> view:
+    image = np.frombuffer(view, dtype=np.uint8)
+    image[:] = pixels
+    <span class="token-keyword">del</span> image
+
+message.data = buffer</code></pre>
+          </div>
+          <div class="code-column">
+            <div class="code-title"><span>Read</span><button type="button" class="copy-button dark" data-copy-target="py-read">Copy</button></div>
+            <pre id="py-read"><code><span class="token-keyword">import</span> numpy <span class="token-keyword">as</span> np
+<span class="token-keyword">from</span> shared_buffer <span class="token-keyword">import</span> read_buffer
+
+<span class="token-keyword">with</span> read_buffer(message.data) <span class="token-keyword">as</span> view:
+    image = np.frombuffer(view, dtype=np.uint8)
+    process(image)
+    <span class="token-keyword">del</span> image</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="notes-grid">
+        <article class="note reveal"><span>!</span><div><strong>view を scope 外へ持ち出さない</strong><p>Python の派生 NumPy array / memoryview は <code>with</code> を抜ける前に解放してください。残っている場合は <code>BufferError</code> になります。</p></div></article>
+        <article class="note reveal"><span>i</span><div><strong>受信側の CPU buffer も読める</strong><p><code>from_input_buffer()</code> / <code>read_buffer()</code> は非 shared buffer を同期 copy で promote できます。この場合は inter-process zero-copy ではありません。</p></div></article>
+      </div>
+    </section>
+
+    <section class="section support-section" id="support">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Compatibility</p>
+        <h2>使える条件を明確に</h2>
+      </div>
+      <div class="support-table-wrap reveal">
+        <table>
+          <thead><tr><th>項目</th><th>対応</th><th>補足</th></tr></thead>
+          <tbody>
+            <tr><th>ROS 2</th><td><span class="status yes">● 対応</span></td><td>Lyrical の <code>rosidl::Buffer</code> backend</td></tr>
+            <tr><th>Language</th><td><span class="status yes">● C++ / Python</span></td><td>Python は buffer protocol 対応、NumPy は optional</td></tr>
+            <tr><th>Linux</th><td><span class="status yes">● 対応</span></td><td>memfd、Unix domain socket、<code>SCM_RIGHTS</code></td></tr>
+            <tr><th>Windows</th><td><span class="status yes">● 対応</span></td><td>session-local named file mapping</td></tr>
+            <tr><th>別 host</th><td><span class="status no">— 対象外</span></td><td>CPU buffer path へ fallback</td></tr>
+            <tr><th>別 user / session</th><td><span class="status no">— 対象外</span></td><td>同一 user が必要。Windows は同一 login session も必要</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section final-cta reveal">
+      <div>
+        <p class="eyebrow">Go deeper</p>
+        <h2>実装の判断まで知りたい方へ</h2>
+        <p>制御 header、block reuse、cache、memory ordering、fallback の詳細は design document にまとめています。</p>
+      </div>
+      <div class="cta-actions">
+        <a class="button primary" href="https://github.com/dskkato/memfd_buffer_backend/blob/rolling/docs/shared_buffer_backend_design.md">Design document を読む</a>
+        <a class="text-link" href="https://github.com/dskkato/memfd_buffer_backend">Source code <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span><span>shared_buffer_backend</span></a>
+    <p>Apache-2.0 · Built for ROS 2 Lyrical</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

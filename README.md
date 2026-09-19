@@ -4,6 +4,10 @@
 compatible ROS 2 endpoints on Linux and Windows. Linux uses anonymous memfd
 allocations; Windows uses session-local named file mappings.
 
+See the [user guide](docs/index.html) for an illustrated overview, setup steps,
+and C++ / Python examples. The guide is a standalone site ready to be served
+with GitHub Pages directly from the `docs/` directory.
+
 ## Attribution
 
 This repository is developed and maintained outside the Open Source Robotics
