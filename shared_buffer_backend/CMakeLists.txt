@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(memfd_buffer_backend)
+project(shared_buffer_backend)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
   message(FATAL_ERROR
-    "memfd_buffer_backend supports Linux and Windows only "
+    "shared_buffer_backend supports Linux and Windows only "
     "(CMAKE_SYSTEM_NAME='${CMAKE_SYSTEM_NAME}').")
 endif()
 

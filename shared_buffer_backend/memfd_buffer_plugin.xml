@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Daisuke Kato
      Licensed under the Apache License, Version 2.0 -->
-<library path="memfd_buffer_backend">
+<library path="shared_buffer_backend">
   <class name="memfd"
          type="memfd_buffer_backend::MemfdBufferBackend"
          base_class_type="rosidl::BufferBackend">

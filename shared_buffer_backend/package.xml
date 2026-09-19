@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>memfd_buffer_backend</name>
+  <name>shared_buffer_backend</name>
   <version>0.1.0</version>
   <description>Pluginlib backend for memfd-backed rosidl::Buffer transport.</description>
 

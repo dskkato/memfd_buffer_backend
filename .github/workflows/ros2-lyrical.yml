@@ -25,7 +25,7 @@ jobs:
             memfd_buffer_backend_msgs
             memfd_buffer
             memfd_buffer_backend_py
-            memfd_buffer_backend
+            shared_buffer_backend
           target-ros2-distro: lyrical
           no-symlink-install: true
           extra-cmake-args: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON

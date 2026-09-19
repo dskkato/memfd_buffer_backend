@@ -44,7 +44,7 @@ def generate_test_description():
         executable='component_container',
         composable_node_descriptions=[
             ComposableNode(
-                package='memfd_buffer_backend',
+                package='shared_buffer_backend',
                 plugin='MemfdImageSubscriber',
                 name='memfd_image_subscriber',
             ),
@@ -59,7 +59,7 @@ def generate_test_description():
         executable='component_container',
         composable_node_descriptions=[
             ComposableNode(
-                package='memfd_buffer_backend',
+                package='shared_buffer_backend',
                 plugin='MemfdImageDsoPublisher',
                 name='memfd_image_dso_publisher',
             ),
